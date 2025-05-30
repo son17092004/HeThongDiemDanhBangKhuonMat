@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { useSelector } from "react-redux";
+import { useSelector, useDispatch } from "react-redux";
 import { useNavigate } from "react-router-dom";
 import axiosInstance from "../utils/axios";
 import {
@@ -39,12 +39,16 @@ import {
   Error,
   Timelapse,
 } from "@mui/icons-material";
+import { useSnackbar } from "notistack";
+import { logout } from "../redux/slices/authSlice";
 
-const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+const API_URL = process.env.REACT_APP_API_URL;
 
 const DashboardPage = () => {
   const navigate = useNavigate();
   const theme = useTheme();
+  const dispatch = useDispatch();
+  const { enqueueSnackbar } = useSnackbar();
   const { user, token } = useSelector((state) => state.auth);
 
   const [stats, setStats] = useState({
@@ -62,63 +66,98 @@ const DashboardPage = () => {
   const [error, setError] = useState(null);
 
   useEffect(() => {
+    if (!user || !token) {
+      enqueueSnackbar("Phiên đăng nhập không hợp lệ. Vui lòng đăng nhập lại.", {
+        variant: "error",
+      });
+      dispatch(logout());
+      navigate("/login", { replace: true });
+      return;
+    }
+
     const fetchDashboardData = async () => {
       try {
         setIsLoading(true);
         setError(null);
 
         if (user.role === "student") {
-          // Cải thiện xử lý lỗi bằng cách gọi API riêng lẻ thay vì Promise.all
           let classesData = [];
           let scoresData = [];
           let logsData = [];
           let upcomingData = [];
 
           try {
-            // Sửa endpoint để sử dụng đúng API cho sinh viên
-            // Thay vì /classes/teaching?student=${user._id} sai đường dẫn
-            // Dùng /classes/teaching/student/${user._id} đúng định nghĩa route
             const classesResponse = await axiosInstance.get(
               `/classes/teaching/student/${user._id}`
             );
             classesData = classesResponse.data.data || [];
           } catch (error) {
             console.error("Lỗi khi lấy dữ liệu lớp học:", error);
+            if (
+              error.response &&
+              (error.response.status === 401 ||
+                error.response.data?.errorType === "TOKEN_EXPIRED" ||
+                error.response.data?.errorType === "INVALID_TOKEN")
+            ) {
+              enqueueSnackbar(
+                error.response.data?.message ||
+                  "Phiên đăng nhập đã hết hạn hoặc không hợp lệ. Vui lòng đăng nhập lại.",
+                { variant: "error" }
+              );
+              dispatch(logout());
+              navigate("/login", { replace: true });
+              return;
+            }
           }
 
           try {
-            // Lấy thống kê điểm danh
             const scoresResponse = await axiosInstance.get(
               `/attendance/student/${user._id}/scores`
             );
             scoresData = scoresResponse.data.data || [];
           } catch (error) {
             console.error("Lỗi khi lấy thống kê điểm danh:", error);
+            if (
+              error.response &&
+              (error.response.status === 401 ||
+                error.response.data?.errorType === "TOKEN_EXPIRED" ||
+                error.response.data?.errorType === "INVALID_TOKEN")
+            ) {
+              enqueueSnackbar(
+                error.response.data?.message ||
+                  "Phiên đăng nhập đã hết hạn hoặc không hợp lệ. Vui lòng đăng nhập lại.",
+                { variant: "error" }
+              );
+              dispatch(logout());
+              navigate("/login", { replace: true });
+              return;
+            }
           }
 
           try {
-            // Lấy lịch sử điểm danh gần đây
             const logsResponse = await axiosInstance.get(
               `/attendance/student/${user._id}/logs?limit=10`
             );
             logsData = logsResponse.data.data || [];
           } catch (error) {
             console.error("Lỗi khi lấy lịch sử điểm danh:", error);
+            if (
+              error.response &&
+              (error.response.status === 401 ||
+                error.response.data?.errorType === "TOKEN_EXPIRED" ||
+                error.response.data?.errorType === "INVALID_TOKEN")
+            ) {
+              enqueueSnackbar(
+                error.response.data?.message ||
+                  "Phiên đăng nhập đã hết hạn hoặc không hợp lệ. Vui lòng đăng nhập lại.",
+                { variant: "error" }
+              );
+              dispatch(logout());
+              navigate("/login", { replace: true });
+              return;
+            }
           }
 
-          // Không sử dụng endpoint upcoming nếu không tồn tại
-          // try {
-          //   // Lấy các lớp sắp tới
-          //   const upcomingResponse = await axios.get(
-          //     `${API_URL}/classes/upcoming?student=${user._id}&limit=3`,
-          //     { headers: { Authorization: `Bearer ${token}` } }
-          //   );
-          //   upcomingData = upcomingResponse.data.data || [];
-          // } catch (error) {
-          //   console.error("Lỗi khi lấy lớp học sắp tới:", error);
-          // }
-
-          // Tính toán tổng số buổi đã tham gia
           const totalAttended = scoresData.reduce(
             (total, score) =>
               total + (score.total_sessions - score.absent_sessions),
@@ -130,7 +169,6 @@ const DashboardPage = () => {
             0
           );
 
-          // Lọc phiên điểm danh hôm nay
           const today = new Date();
           today.setHours(0, 0, 0, 0);
 
@@ -142,7 +180,6 @@ const DashboardPage = () => {
             return logDate.getTime() === today.getTime();
           });
 
-          // Xử lý dữ liệu phần trăm cho từng lớp học
           const classesWithPercentage = classesData.map((classItem) => {
             const classScore = scoresData.find(
               (score) =>
@@ -151,19 +188,18 @@ const DashboardPage = () => {
             );
             return {
               ...classItem,
-              // Lấy các trường cần thiết từ classScore hoặc classItem làm fallback
               attendanceStats: classScore
                 ? {
                     attended: classScore.attended_sessions || 0,
-                    total: classScore.total_sessions || 0, // Số buổi đã hoàn thành
+                    total: classScore.total_sessions || 0,
                     percentage: classScore.attendance_percentage || 0,
                     completed_sessions: classScore.completed_sessions || 0,
                     total_planned_sessions:
                       classScore.total_planned_sessions ||
                       classItem.total_sessions ||
-                      0, // Lấy total_sessions từ classItem nếu score chưa có
-                    absent: classScore.absent_sessions || 0, // Thêm số buổi vắng
-                    is_failed: classScore.is_failed_due_to_absent || false, // Thêm trạng thái cấm thi
+                      0,
+                    absent: classScore.absent_sessions || 0,
+                    is_failed: classScore.is_failed_due_to_absent || false,
                   }
                 : {
                     attended: 0,
@@ -192,19 +228,14 @@ const DashboardPage = () => {
             attendanceScores: scoresData,
           });
         } else if (user.role === "teacher") {
-          // Dữ liệu cho giáo viên
-
-          // Lấy các lớp do giáo viên dạy
           const classesResponse = await axiosInstance.get(
             `/classes/teaching/teacher/${user._id}`
           );
 
-          // Lấy các phiên điểm danh gần đây
           const sessionsResponse = await axiosInstance.get(
             `/attendance/sessions?teacher=${user._id}&limit=5`
           );
 
-          // Lọc phiên điểm danh hôm nay
           const today = new Date();
           today.setHours(0, 0, 0, 0);
 
@@ -223,17 +254,12 @@ const DashboardPage = () => {
             totalClasses: classesResponse.data.data.length,
           });
         } else if (user.role === "admin") {
-          // Dữ liệu cho admin
-
-          // Lấy tổng số lớp học
           const adminClassesResponse = await axiosInstance.get(
             `/classes/teaching?limit=5`
           );
 
-          // Lấy tổng số người dùng
           const usersResponse = await axiosInstance.get(`/users/stats`);
 
-          // Lấy các phiên điểm danh gần đây
           const adminSessionsResponse = await axiosInstance.get(
             `/attendance/sessions?limit=5`
           );
@@ -251,15 +277,29 @@ const DashboardPage = () => {
         setIsLoading(false);
       } catch (error) {
         console.error("Lỗi khi tải dữ liệu dashboard:", error);
-        setError("Không thể tải dữ liệu. Vui lòng thử lại sau.");
+        if (
+          error.response &&
+          (error.response.status === 401 ||
+            error.response.data?.errorType === "TOKEN_EXPIRED" ||
+            error.response.data?.errorType === "INVALID_TOKEN")
+        ) {
+          enqueueSnackbar(
+            error.response.data?.message ||
+              "Phiên đăng nhập đã hết hạn hoặc không hợp lệ. Vui lòng đăng nhập lại.",
+            { variant: "error" }
+          );
+          dispatch(logout());
+          navigate("/login", { replace: true });
+        } else {
+          setError("Không thể tải dữ liệu. Vui lòng thử lại sau.");
+        }
         setIsLoading(false);
       }
     };
 
     fetchDashboardData();
-  }, [user, token]);
+  }, [user, token, dispatch, navigate, enqueueSnackbar]);
 
-  // Xử lý thông tin sinh viên
   const studentInfo = useMemo(() => {
     if (user.role !== "student") return null;
 
@@ -309,7 +349,6 @@ const DashboardPage = () => {
     );
   }
 
-  // Render dựa trên vai trò
   const renderContent = () => {
     switch (user.role) {
       case "student":
@@ -323,7 +362,6 @@ const DashboardPage = () => {
     }
   };
 
-  // Dashboard cho sinh viên - phần được tối ưu
   const renderStudentDashboard = () => (
     <Grid container spacing={3}>
       <Grid item xs={12} md={8}>
@@ -671,7 +709,7 @@ const DashboardPage = () => {
                                   ? "success"
                                   : classItem.attendanceStats.percentage >= 50
                                   ? "warning"
-                                  : "default" // Hoặc màu khác cho tỷ lệ thấp
+                                  : "default"
                               }
                             />
                           </Tooltip>
@@ -719,7 +757,6 @@ const DashboardPage = () => {
           </CardContent>
         </Card>
 
-        {/* Phần hiển thị lớp học sắp tới chỉ hiển thị khi có dữ liệu */}
         {stats.upcomingClasses && stats.upcomingClasses.length > 0 && (
           <Card
             sx={{
@@ -930,7 +967,6 @@ const DashboardPage = () => {
     </Grid>
   );
 
-  // Dashboard cho giáo viên
   const renderTeacherDashboard = () => (
     <Grid container spacing={3}>
       <Grid item xs={12} md={8}>
@@ -1182,7 +1218,6 @@ const DashboardPage = () => {
     </Grid>
   );
 
-  // Dashboard cho admin
   const renderAdminDashboard = () => (
     <Grid container spacing={3}>
       <Grid item xs={12}>

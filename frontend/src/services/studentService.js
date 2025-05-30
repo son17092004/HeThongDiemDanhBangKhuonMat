@@ -1,7 +1,7 @@
 import axios from "axios";
 
 // Thay đổi import từ config thành định nghĩa API_URL trực tiếp
-const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+const API_URL = process.env.REACT_APP_API_URL;
 
 /**
  * Service để quản lý các chức năng liên quan đến sinh viên

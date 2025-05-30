@@ -2,7 +2,7 @@ import axios from "axios";
 import jwtDecode from "jwt-decode";
 import { toast } from "react-hot-toast";
 
-const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+const API_URL = process.env.REACT_APP_API_URL;
 
 // Kiểm tra token đã hết hạn hay chưa
 const isTokenExpired = (token) => {

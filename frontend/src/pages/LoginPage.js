@@ -32,7 +32,7 @@ import {
 } from "../redux/slices/authSlice";
 import axios from "../utils/axios";
 
-const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+const API_URL = process.env.REACT_APP_API_URL;
 
 const LoginPage = () => {
   const dispatch = useDispatch();
@@ -200,8 +200,7 @@ const LoginPage = () => {
   const handleGoogleLogin = () => {
     try {
       setGoogleLoading(true);
-      const apiUrl =
-        process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+      const apiUrl = process.env.REACT_APP_API_URL;
       // Thêm timestamp để tránh cache
       const redirectUrl = `${apiUrl}/auth/google?t=${Date.now()}`;
       window.location.href = redirectUrl;

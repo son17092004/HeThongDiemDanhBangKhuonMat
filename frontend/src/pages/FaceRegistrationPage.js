@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, lazy, Suspense } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import { useNavigate } from "react-router-dom";
 import { useSelector, useDispatch } from "react-redux";
 import { useSnackbar } from "notistack";
@@ -14,9 +14,6 @@ import {
   StepContent,
   CircularProgress,
   Alert,
-  Card,
-  CardContent,
-  Grid,
   Divider,
   List,
   ListItem,
@@ -29,19 +26,13 @@ import {
   Stack,
   Avatar,
   Container,
-  Skeleton,
-  AlertTitle,
 } from "@mui/material";
 import {
-  Camera,
   Check,
-  Face,
   Info,
-  ViewArray,
   SaveAlt,
   ErrorOutline,
   CheckCircleOutline,
-  ArrowBack,
   HelpOutline,
   CameraAlt,
   Person,
@@ -52,18 +43,8 @@ import { getCurrentUser } from "../redux/slices/authSlice";
 import { loadModels, detectFace } from "../utils/faceUtils";
 import FaceRegistrationComponent from "../components/FaceRegistrationComponent";
 
-// Lazy load Webcam to reduce initial bundle size
-const Webcam = lazy(() => import("react-webcam"));
-
-const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+const API_URL = process.env.REACT_APP_API_URL;
 const REQUIRED_IMAGES = 3;
-
-// Improved video constraints for better mobile compatibility
-const videoConstraints = {
-  width: { ideal: 640 },
-  height: { ideal: 480 },
-  facingMode: "user",
-};
 
 const FaceRegistrationPage = () => {
   const navigate = useNavigate();
@@ -74,10 +55,6 @@ const FaceRegistrationPage = () => {
     token,
     isLoading: authLoading,
   } = useSelector((state) => state.auth);
-
-  // Refs
-  const webcamRef = useRef(null);
-  const canvasRef = useRef(null); // Keep if needed for drawing overlays
 
   // --- State ---
   const [capturedFaceData, setCapturedFaceData] = useState(null);
@@ -141,11 +118,6 @@ const FaceRegistrationPage = () => {
     registrationError,
     enqueueSnackbar,
   ]);
-
-  // 3. Monitor camera readiness (using callback now)
-  const handleUserMedia = () => {
-    // console.log("Camera is ready.");
-  };
 
   const handleUserMediaError = (error) => {
     console.error("Camera error:", error);
@@ -271,7 +243,6 @@ const FaceRegistrationPage = () => {
   };
 
   const steps = [
-    // Step 0: Introduction
     {
       label: "Giới thiệu",
       content: (

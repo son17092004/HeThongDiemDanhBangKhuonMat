@@ -84,7 +84,7 @@ import RefreshIcon from "@mui/icons-material/Refresh";
 import CheckIcon from "@mui/icons-material/Check";
 import NoDataSvg from "../../components/NoDataSvg";
 
-const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+const API_URL = process.env.REACT_APP_API_URL;
 
 function TabPanel(props) {
   const { children, value, index, ...other } = props;

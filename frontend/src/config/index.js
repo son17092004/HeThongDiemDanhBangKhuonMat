@@ -1,8 +1,7 @@
 // Các biến cấu hình toàn cục cho ứng dụng
 
 // API URL từ biến môi trường hoặc URL mặc định
-export const API_URL =
-  process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+export const API_URL = process.env.REACT_APP_API_URL;
 
 // Các biến cấu hình khác
 export const APP_NAME = "FaceReg Attendance System";

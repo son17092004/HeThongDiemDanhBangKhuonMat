@@ -4,7 +4,6 @@ const cors = require("cors");
 const connectDB = require("./config/db");
 const path = require("path");
 const passport = require("passport");
-const env = require("./config/env");
 const initAdmin = require("./config/initAdmin");
 
 // Passport config
@@ -20,7 +19,7 @@ const app = express();
 
 // Cấu hình CORS chi tiết
 const corsOptions = {
-  origin: env.FRONTEND_URL || "http://localhost:3000",
+  origin: process.env.FRONTEND_URL || "http://localhost:3000",
   methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
   credentials: true,
   exposedHeaders: ["x-auth-token"],
@@ -59,6 +58,6 @@ app.get("/", (req, res) => {
   res.json({ message: "API Hệ thống Điểm danh Khuôn mặt" });
 });
 
-const PORT = env.PORT || 5000;
+const PORT = process.env.PORT;
 
 app.listen(PORT, () => console.log(`Máy chủ đang chạy trên cổng ${PORT}`));

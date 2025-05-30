@@ -33,7 +33,7 @@ import {
 } from "@mui/material";
 import { Add, Delete, Edit, Search, Refresh } from "@mui/icons-material";
 
-const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+const API_URL = process.env.REACT_APP_API_URL;
 
 const SubjectsPage = () => {
   const dispatch = useDispatch();

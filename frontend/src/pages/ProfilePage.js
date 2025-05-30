@@ -17,7 +17,7 @@ import {
 import { Person, Edit } from "@mui/icons-material";
 import { setCredentials } from "../redux/slices/authSlice";
 
-const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+const API_URL = process.env.REACT_APP_API_URL;
 
 const ProfilePage = () => {
   const dispatch = useDispatch();

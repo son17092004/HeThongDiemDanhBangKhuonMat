@@ -11,7 +11,7 @@ import {
   Alert,
 } from "@mui/material";
 
-const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+const API_URL = process.env.REACT_APP_API_URL;
 
 const GoogleRedirectPage = () => {
   const [status, setStatus] = useState("loading");

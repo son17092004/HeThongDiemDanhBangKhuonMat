@@ -57,7 +57,7 @@ import {
 // Import studentService
 import studentService from "../../services/studentService";
 
-const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+const API_URL = process.env.REACT_APP_API_URL;
 // Thời gian chờ debounce (ms)
 const DEBOUNCE_DELAY = 500;
 

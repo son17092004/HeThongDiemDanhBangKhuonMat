@@ -1,7 +1,6 @@
 const jwt = require("jsonwebtoken");
 const { User } = require("../models/schemas");
-const env = require("../config/env");
-
+require("dotenv").config();
 exports.protect = async (req, res, next) => {
   let token;
 
@@ -14,7 +13,7 @@ exports.protect = async (req, res, next) => {
       token = req.headers.authorization.split(" ")[1];
 
       // Xác minh token
-      const decoded = jwt.verify(token, env.JWT_SECRET);
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
       // Gán người dùng vào request
       req.user = await User.findById(decoded.id).select("-password");

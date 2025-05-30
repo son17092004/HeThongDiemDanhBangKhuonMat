@@ -1,15 +1,11 @@
 const { User, MainClass, Notification } = require("../models/schemas");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const crypto = require("crypto");
-const env = require("../config/env");
-const passport = require("passport");
-const mongoose = require("mongoose");
-
+require("dotenv").config();
 // Tạo token JWT
 const generateToken = (id) => {
-  return jwt.sign({ id }, env.JWT_SECRET, {
-    expiresIn: env.JWT_EXPIRES_IN,
+  return jwt.sign({ id }, process.env.JWT_SECRET, {
+    expiresIn: process.env.JWT_EXPIRES_IN,
   });
 };
 
@@ -388,7 +384,7 @@ exports.getCurrentUser = async (req, res) => {
 exports.googleCallback = async (req, res) => {
   try {
     const { id, email, displayName, photos, isNewUser } = req.user;
-    const FRONTEND_URL = env.FRONTEND_URL;
+    const FRONTEND_URL = process.env.FRONTEND_URL;
 
     // Kiểm tra nếu đây là người dùng mới
     if (isNewUser) {
@@ -410,9 +406,13 @@ exports.googleCallback = async (req, res) => {
       // Nếu người dùng tồn tại, kiểm tra trạng thái
       if (existingUser.status === "pending") {
         // User đã đăng ký nhưng đang chờ phê duyệt
-        const token = jwt.sign({ id: existingUser._id }, env.JWT_SECRET, {
-          expiresIn: "1d",
-        });
+        const token = jwt.sign(
+          { id: existingUser._id },
+          process.env.JWT_SECRET,
+          {
+            expiresIn: "1d",
+          }
+        );
         return res.redirect(
           `${FRONTEND_URL}/login/success?token=${token}&status=pending&role=${existingUser.role}`
         );
@@ -423,9 +423,13 @@ exports.googleCallback = async (req, res) => {
         );
       } else if (existingUser.status === "approved") {
         // User đã được phê duyệt, đăng nhập thành công
-        const token = jwt.sign({ id: existingUser._id }, env.JWT_SECRET, {
-          expiresIn: "1d",
-        });
+        const token = jwt.sign(
+          { id: existingUser._id },
+          process.env.JWT_SECRET,
+          {
+            expiresIn: "1d",
+          }
+        );
 
         // Cập nhật googleId và avatar nếu cần
         // Kiểm tra photos trước khi truy cập
@@ -456,7 +460,7 @@ exports.googleCallback = async (req, res) => {
     }
   } catch (error) {
     console.error("Google callback error:", error);
-    const FRONTEND_URL = env.FRONTEND_URL;
+    const FRONTEND_URL = process.env.FRONTEND_URL;
     return res.redirect(`${FRONTEND_URL}/login/error`);
   }
 };

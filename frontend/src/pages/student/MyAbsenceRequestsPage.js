@@ -154,7 +154,43 @@ const MyAbsenceRequestsPage = () => {
             newRequestData.teaching_class_id
           );
           if (response.success) {
-            setSessions(response.data || []);
+            // Lọc các buổi học chưa kết thúc
+            const now = new Date();
+            const futureSessions = (response.data || []).filter((session) => {
+              // Giả định session.end_time là một chuỗi ISO hoặc một đối tượng Date
+              // Hoặc nếu chỉ có date và end_period, cần logic tính toán phức tạp hơn
+              // Tạm thời giả định session.end_time tồn tại và hợp lệ
+              if (session.end_time) {
+                return new Date(session.end_time) > now;
+              } else if (session.date && session.end_period) {
+                // Nếu không có end_time, thử xây dựng từ date và end_period
+                // Đây là ví dụ giả định, cần điều chỉnh theo cấu trúc dữ liệu thực tế của session.end_period
+                // Ví dụ: end_period có thể là "12:00"
+                // Hoặc end_period là số thứ tự tiết, cần ánh xạ sang thời gian cụ thể
+                // Hiện tại, nếu không có session.end_time rõ ràng, sẽ bỏ qua (cần logic chính xác hơn)
+                // Để an toàn, chỉ những session có end_time rõ ràng và trong tương lai mới được giữ lại
+                // Hoặc, bạn có thể dựa vào session.date và coi như cả ngày đó còn hiệu lực nếu không có end_time
+                // For a simpler approach for now, if end_time is not present, we might exclude it or handle based on date
+                // Let's assume if no end_time, we check if the session.date is today or in the future.
+                const sessionDate = new Date(session.date);
+                sessionDate.setHours(23, 59, 59, 999); // Coi như kết thúc vào cuối ngày
+                return sessionDate >= now;
+              }
+              return false; // Nếu không có thông tin thời gian kết thúc rõ ràng, tạm thời loại bỏ
+            });
+            setSessions(futureSessions);
+            if (
+              futureSessions.length === 0 &&
+              (response.data || []).length > 0
+            ) {
+              setFetchSessionsError(
+                "Tất cả các buổi học của lớp này đã kết thúc hoặc không thể xin nghỉ."
+              );
+            } else if (futureSessions.length === 0) {
+              setFetchSessionsError(
+                "Không có buổi học nào có thể xin nghỉ cho lớp này."
+              );
+            }
           } else {
             setFetchSessionsError(
               response.message || "Không thể tải danh sách buổi học."

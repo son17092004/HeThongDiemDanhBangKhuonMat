@@ -1,4 +1,4 @@
-// require("dotenv").config(); // Xóa hoặc comment dòng này
+require("dotenv").config(); // Xóa hoặc comment dòng này
 const cloudinary = require("cloudinary").v2;
 
 // Log giá trị biến môi trường ngay trước khi config

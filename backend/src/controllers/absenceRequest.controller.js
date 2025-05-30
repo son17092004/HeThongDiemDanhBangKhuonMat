@@ -75,6 +75,18 @@ exports.createAbsenceRequest = async (req, res, next) => {
       });
     }
 
+    // Kiểm tra xem buổi học đã kết thúc chưa
+    // Giả sử attendanceSession.end_time là một đối tượng Date hoặc một chuỗi ISO có thể parse được
+    if (
+      attendanceSession.end_time &&
+      new Date(attendanceSession.end_time) < new Date()
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Không thể gửi đơn xin nghỉ cho buổi học đã kết thúc.",
+      });
+    }
+
     if (!attendanceSession.teaching_class_id) {
       return res.status(500).json({
         success: false,

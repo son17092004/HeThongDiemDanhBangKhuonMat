@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { useDispatch, useSelector } from "react-redux";
+import { useSelector } from "react-redux";
 import { useSnackbar } from "notistack";
 import axios from "axios";
 import {
@@ -28,10 +28,9 @@ import {
 } from "@mui/material";
 import { Add, Delete, Edit, Search, Refresh } from "@mui/icons-material";
 
-const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+const API_URL = process.env.REACT_APP_API_URL;
 
 const DepartmentsPage = () => {
-  const dispatch = useDispatch();
   const { enqueueSnackbar } = useSnackbar();
   const { token } = useSelector((state) => state.auth);
 
