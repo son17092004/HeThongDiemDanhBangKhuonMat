@@ -40,7 +40,7 @@ import {
 import FaceRegistrationComponent from "../components/FaceRegistrationComponent";
 
 const API_URL = process.env.REACT_APP_API_URL;
-const REQUIRED_IMAGES = 3;
+const REQUIRED_IMAGES = 5; // Tăng từ 3 lên 5 để cải thiện độ tin cậy nhận diện
 
 const RegisterPage = () => {
   const navigate = useNavigate();
@@ -591,7 +591,7 @@ const RegisterPage = () => {
             enableFaceRegistration &&
             isFaceRegistrationComplete &&
             faceData
-              ? { descriptors: faceData }
+              ? { descriptors: faceData.map((item) => item.descriptor) }
               : undefined,
         };
 

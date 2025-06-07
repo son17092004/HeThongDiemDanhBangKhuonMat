@@ -11,10 +11,10 @@ export const USER_KEY = "user";
 // Thời gian hết hạn token (ms)
 export const TOKEN_EXPIRY = 24 * 60 * 60 * 1000; // 24 giờ
 
-// Cấu hình Face API
+// Cấu hình Face API - CẢI THIỆN ĐỘ TIN CẬY
 export const FACE_DETECTION_OPTIONS = {
-  scoreThreshold: 0.5,
-  inputSize: 224,
+  scoreThreshold: 0.6, // Tăng từ 0.5 lên 0.6
+  inputSize: 320, // Tăng từ 224 lên 320 để detection chính xác hơn
   scale: 0.8,
 };
 

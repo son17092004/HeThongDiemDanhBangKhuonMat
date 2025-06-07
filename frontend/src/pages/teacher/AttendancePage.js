@@ -81,9 +81,9 @@ const Webcam = lazy(() => import("react-webcam"));
 const API_URL = process.env.REACT_APP_API_URL;
 
 // Configuration Constants
-const RECOGNITION_THRESHOLD = 0.4;
-const DETECTION_THRESHOLD = 0.5;
-const CONFIDENCE_THRESHOLD = 0.7;
+const RECOGNITION_THRESHOLD = 0.55; // Giảm từ 0.6 xuống 0.55 để nhận diện dễ hơn
+const DETECTION_THRESHOLD = 0.6;
+const CONFIDENCE_THRESHOLD = 0.75; // Giảm từ 0.8 xuống 0.75 để chấp nhận confidence thấp hơn
 const AUTO_DETECT_INTERVAL = 1500;
 const FACE_DETECTION_OPTIONS = new faceapi.TinyFaceDetectorOptions({
   scoreThreshold: DETECTION_THRESHOLD,
@@ -653,6 +653,17 @@ const AttendancePage = () => {
         ctx.font = "14px Arial";
         ctx.fillText(label, box.x + 5, box.y - 5);
 
+        // Thêm thông tin match count nếu có
+        if (recognized && recognized.matchCount) {
+          const subLabel = `Matches: ${recognized.matchCount}`;
+          const subTextWidth = ctx.measureText(subLabel).width;
+          ctx.fillStyle = "rgba(0, 100, 0, 0.7)";
+          ctx.fillRect(box.x, box.y + box.height, subTextWidth + 10, 15);
+          ctx.fillStyle = "#FFFFFF";
+          ctx.font = "11px Arial";
+          ctx.fillText(subLabel, box.x + 5, box.y + box.height + 12);
+        }
+
         // Draw landmarks if enabled
         if (showLandmarks && landmarks) {
           faceapi.draw.drawFaceLandmarks(canvas, resizedDetections); // Use face-api's drawing utility
@@ -735,15 +746,62 @@ const AttendancePage = () => {
                 const student = classStudents.find(
                   (s) => s._id === bestMatch.label
                 ); // Find student by ID label
+
+                if (!student || bestMatch.label === "unknown") {
+                  return null;
+                }
+
+                // Cải thiện tính confidence: Sử dụng thuật toán tối ưu
+                const studentDescriptors = extractStudentDescriptors(student);
+                let bestConfidence = 1 - bestMatch.distance; // Confidence từ best match
+                let validMatches = 0;
+
+                // Tính confidence từ tất cả descriptors để có kết quả chính xác hơn
+                if (studentDescriptors.length > 0) {
+                  let totalConfidence = 0;
+                  let matchedCount = 0;
+
+                  studentDescriptors.forEach((descriptor) => {
+                    const distance = faceapi.euclideanDistance(
+                      fd.descriptor,
+                      descriptor
+                    );
+
+                    // Chỉ tính những match có distance < 0.65 (looser threshold)
+                    if (distance < 0.65) {
+                      const confidence = Math.max(0, 1 - distance);
+                      totalConfidence += confidence;
+                      matchedCount++;
+                      validMatches++;
+                    }
+                  });
+
+                  if (matchedCount > 0) {
+                    const avgConfidence = totalConfidence / matchedCount;
+
+                    // Sử dụng combination của best match và average, ưu tiên best match
+                    // Boost confidence nếu có nhiều matches
+                    const boostFactor = Math.min(
+                      1.2,
+                      1 + (matchedCount - 1) * 0.05
+                    ); // Tối đa boost 20%
+                    bestConfidence = Math.min(
+                      1,
+                      Math.max(bestConfidence, avgConfidence) * boostFactor
+                    );
+                  }
+                }
+
                 return {
                   detectionIndex: index, // Link recognition to detection
                   studentId: student?._id,
                   name: student?.full_name || "Không rõ",
-                  confidence: 1 - bestMatch.distance, // Convert distance to confidence-like score
-                  isUnknown: bestMatch.label === "unknown",
+                  confidence: Math.min(1, bestConfidence), // Sử dụng bestConfidence đã tính toán
+                  isUnknown: false,
+                  matchCount: validMatches, // Số lượng descriptors match
                 };
               })
-              .filter((r) => !r.isUnknown); // Filter out unknown matches
+              .filter((r) => r !== null); // Filter out null results
 
             dispatch(setRecognizedStudents(recognizedData)); // Update recognized students in Redux
           } else {
@@ -888,29 +946,55 @@ const AttendancePage = () => {
 
     let bestMatchStudent = null;
     let minDistance = Infinity;
+    let matchCount = 0;
+    let totalConfidence = 0;
 
     classStudents.forEach((student) => {
       const studentDescriptors = extractStudentDescriptors(student);
       if (!studentDescriptors.length) return;
 
+      let studentBestDistance = Infinity;
+      let studentMatchCount = 0;
+
       studentDescriptors.forEach((studentDescriptor) => {
-        // Giả sử getFaceDistance trả về khoảng cách Euclidean (càng nhỏ càng tốt)
         const distance = getFaceDistance(descriptor, studentDescriptor);
-        if (distance < minDistance && distance < RECOGNITION_THRESHOLD) {
-          minDistance = distance;
-          bestMatchStudent = student;
+
+        // Tính với threshold looser để có nhiều matches hơn
+        if (distance < 0.65) {
+          studentMatchCount++;
+          const confidence = Math.max(0, 1 - distance);
+          totalConfidence += confidence;
+        }
+
+        if (
+          distance < studentBestDistance &&
+          distance < RECOGNITION_THRESHOLD
+        ) {
+          studentBestDistance = distance;
+          if (distance < minDistance) {
+            minDistance = distance;
+            bestMatchStudent = student;
+            matchCount = studentMatchCount;
+          }
         }
       });
     });
 
-    if (bestMatchStudent) {
-      // Confidence = 1 - distance. Đảm bảo distance không quá lớn hơn 1 nếu có thể.
-      // RECOGNITION_THRESHOLD là ngưỡng cho distance.
-      const confidence = 1 - minDistance; // Giả định distance trong khoảng [0, RECOGNITION_THRESHOLD]
+    if (bestMatchStudent && minDistance < RECOGNITION_THRESHOLD) {
+      // Tính confidence cải thiện với boost factor
+      let confidence = 1 - minDistance;
+
+      if (matchCount > 1) {
+        // Boost confidence nếu có nhiều descriptors match
+        const boostFactor = Math.min(1.15, 1 + (matchCount - 1) * 0.03);
+        confidence = Math.min(1, confidence * boostFactor);
+      }
+
       return {
         student: bestMatchStudent,
         confidence: Math.max(0, Math.min(1, confidence)),
-      }; // Kẹp confidence trong [0,1]
+        matchCount: matchCount,
+      };
     }
 
     return null;
@@ -1099,7 +1183,7 @@ const AttendancePage = () => {
     enqueueSnackbar,
     refreshAttendanceLogs,
     attendanceLogs, // Thêm attendanceLogs vào dependencies
-  ]); // Added dependencies
+  ]);
 
   const stopAutoAttendance = useCallback(() => {
     clearInterval(autoModeIntervalRef.current);

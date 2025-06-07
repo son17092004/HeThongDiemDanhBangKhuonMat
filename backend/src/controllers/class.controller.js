@@ -2010,7 +2010,7 @@ exports.getPendingStudents = async (req, res) => {
       role: "student",
       status: "pending",
     })
-      .select("-password -refresh_token -faceFeatures.descriptors") // Loại bỏ descriptors lớn
+      .select("-password -refresh_token") // Không loại bỏ faceFeatures để kiểm tra has_face_data
       .populate({
         path: "school_info.class_id",
         select: "name class_code major_id year_start",
@@ -2029,11 +2029,17 @@ exports.getPendingStudents = async (req, res) => {
     const pendingStudentsWithFaceInfo = pendingStudents.map((student) => {
       const studentObj = student.toObject();
 
+      // Kiểm tra has_face_data dựa trên faceFeatures đầy đủ
       studentObj.has_face_data = !!(
         studentObj.faceFeatures &&
         studentObj.faceFeatures.descriptors &&
         studentObj.faceFeatures.descriptors.length > 0
       );
+
+      // Loại bỏ descriptors khỏi response để giảm dung lượng nhưng vẫn giữ lastUpdated
+      if (studentObj.faceFeatures && studentObj.faceFeatures.descriptors) {
+        delete studentObj.faceFeatures.descriptors;
+      }
 
       if (
         studentObj.has_face_data &&
@@ -2321,11 +2327,17 @@ exports.getApprovedStudents = async (req, res) => {
     const approvedStudentsWithFaceInfo = approvedStudents.map((student) => {
       const studentObj = student.toObject();
 
+      // Kiểm tra has_face_data dựa trên faceFeatures đầy đủ
       studentObj.has_face_data = !!(
         studentObj.faceFeatures &&
         studentObj.faceFeatures.descriptors &&
         studentObj.faceFeatures.descriptors.length > 0
       );
+
+      // Loại bỏ descriptors khỏi response để giảm dung lượng nhưng vẫn giữ lastUpdated
+      if (studentObj.faceFeatures && studentObj.faceFeatures.descriptors) {
+        delete studentObj.faceFeatures.descriptors;
+      }
 
       if (
         studentObj.has_face_data &&
@@ -2713,15 +2725,11 @@ exports.getSchedulableSessionsForStudent = async (req, res) => {
       });
     }
 
-    // 2. Lấy các buổi học (AttendanceSession) của lớp đó
-    // const now = new Date(); // Không cần 'now' nữa nếu 'today' được khởi tạo đúng
-    const today = new Date(new Date().setHours(0, 0, 0, 0)); // Khởi tạo today một cách an toàn hơn
-
-    const sessionsQuery = AttendanceSession.find({
+    // 2. Lấy các buổi học (AttendanceSession) của lớp đó có trạng thái "pending"
+    const sessions = await AttendanceSession.find({
       teaching_class_id: teachingClassId,
-    });
-
-    sessionsQuery
+      status: "pending", // CHỈ LẤY CÁC BUỔI HỌC SẮP DIỄN RA
+    })
       .populate({
         path: "teaching_class_id",
         select: "class_name subject_id",
@@ -2730,9 +2738,7 @@ exports.getSchedulableSessionsForStudent = async (req, res) => {
           select: "name code",
         },
       })
-      .populate("room", "room_number");
-
-    const sessions = await sessionsQuery
+      .populate("room", "room_number")
       .sort({ date: 1, start_period: 1 })
       .lean();
 
@@ -2740,56 +2746,11 @@ exports.getSchedulableSessionsForStudent = async (req, res) => {
       return res.status(200).json({ success: true, count: 0, data: [] });
     }
 
-    // 3. Lọc và bổ sung thông tin cho các buổi học hợp lệ
-    const schedulableSessions = [];
-
-    for (let session of sessions) {
-      const sessionDate = new Date(session.date);
-
-      if (
-        (session.start_period == null || session.end_period == null) &&
-        teachingClass.schedule &&
-        teachingClass.schedule.length > 0
-      ) {
-        const sessionDayOfWeek = sessionDate.getDay();
-
-        const matchedScheduleItem = teachingClass.schedule.find(
-          (item) => item.day_of_week === sessionDayOfWeek
-        );
-
-        if (matchedScheduleItem) {
-          if (session.start_period == null) {
-            session.start_period = matchedScheduleItem.start_period;
-          }
-          if (session.end_period == null) {
-            session.end_period = matchedScheduleItem.end_period;
-          }
-        }
-      }
-
-      let canSchedule = false;
-      if (sessionDate >= today) {
-        canSchedule = true;
-      } else {
-        const attendanceLog = await AttendanceLog.findOne({
-          session_id: session._id,
-          student_id: studentId,
-          status: "present",
-        }).lean();
-        if (!attendanceLog) {
-          canSchedule = true;
-        }
-      }
-
-      if (canSchedule) {
-        schedulableSessions.push(session);
-      }
-    }
-
+    // Không cần logic lọc phức tạp ở dưới nữa vì đã lọc bằng status
     res.status(200).json({
       success: true,
-      count: schedulableSessions.length,
-      data: schedulableSessions,
+      count: sessions.length,
+      data: sessions,
     });
   } catch (error) {
     console.error("Lỗi khi lấy danh sách buổi học có thể xin nghỉ:", error);

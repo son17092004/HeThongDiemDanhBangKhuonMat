@@ -274,8 +274,8 @@ exports.updateAttendanceSession = async (req, res) => {
     // Gọi cập nhật điểm SAU KHI LƯU, chỉ khi status là completed
     if (status === "completed") {
       try {
-        if (typeof updateAttendanceScores === "function") {
-          await updateAttendanceScores(
+        if (typeof exports.updateAttendanceScores === "function") {
+          await exports.updateAttendanceScores(
             session.teaching_class_id,
             session.toObject()
           );
@@ -609,11 +609,11 @@ exports.getStudentScores = async (req, res) => {
           : 0;
 
       // Tạo công thức tính điểm
-      const attendanceCalculation = `10 - (${absentSessions} vắng * 2) = ${attendanceScore}`;
+      const attendanceCalculation = `10 - (${absentSessions} vắng × 2) = ${attendanceScore}`;
 
       // Tạo trạng thái điểm danh
       const attendanceStatus = isFailedDueToAbsent
-        ? `Cấm thi (vắng ${absentSessions}/${maxAbsentAllowed + 1} buổi)`
+        ? `Cấm thi (vắng ${absentSessions}/${maxAbsentAllowed} buổi)`
         : "Đủ điều kiện dự thi";
 
       // Tạo đối tượng trả về
@@ -700,10 +700,19 @@ exports.calculateAttendanceScores = async (req, res) => {
   try {
     const { teaching_class_id } = req.body;
 
+    // Validation đầu vào
     if (!teaching_class_id) {
       return res.status(400).json({
         success: false,
         message: "Thiếu ID lớp học",
+      });
+    }
+
+    // Kiểm tra format ObjectId
+    if (!teaching_class_id.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({
+        success: false,
+        message: "ID lớp học không hợp lệ",
       });
     }
 
@@ -728,25 +737,37 @@ exports.calculateAttendanceScores = async (req, res) => {
       });
     }
 
-    // Gọi hàm tính toán điểm
-    const updatedScores = await updateAttendanceScores(teaching_class_id);
+    // Gọi hàm tính toán điểm với try-catch
+    let updatedScores;
+    try {
+      updatedScores = await exports.updateAttendanceScores(teaching_class_id);
+    } catch (calculateError) {
+      console.error("Lỗi khi tính toán điểm chuyên cần:", calculateError);
+      return res.status(500).json({
+        success: false,
+        message: "Lỗi khi tính toán điểm chuyên cần",
+        error: calculateError.message,
+      });
+    }
 
     res.status(200).json({
       success: true,
       count: updatedScores.length,
       data: updatedScores,
+      message: `Đã cập nhật điểm chuyên cần cho ${updatedScores.length} sinh viên`,
     });
   } catch (error) {
-    console.error(error);
+    console.error("Lỗi trong calculateAttendanceScores:", error);
     res.status(500).json({
       success: false,
       message: "Lỗi máy chủ",
+      error: error.message,
     });
   }
 };
 
 // Hàm hỗ trợ tính toán điểm chuyên cần
-const updateAttendanceScores = async (
+exports.updateAttendanceScores = async (
   teachingClassId,
   justCompletedSessionObject = null
 ) => {
@@ -760,7 +781,7 @@ const updateAttendanceScores = async (
     throw new Error("Không tìm thấy lớp học");
   }
 
-  // Lấy tất cả phiên điểm danh đã hoàn thành
+  // Lấy tất cả phiên điểm danh đã hoàn thành từ DB
   let completedSessionsFromDB = await AttendanceSession.find({
     teaching_class_id: teachingClassId,
     status: "completed",
@@ -793,7 +814,7 @@ const updateAttendanceScores = async (
   // Lấy số lượng phiên điểm danh đã hoàn thành
   const totalCompletedSessions = allCompletedSessions.length;
   const totalPlannedSessions = teachingClass.total_sessions || 0;
-  const maxAbsentAllowed = teachingClass.max_absent_allowed || 3; // Giữ lại để kiểm tra cấm thi
+  const maxAbsentAllowed = teachingClass.max_absent_allowed || 3;
 
   // Cập nhật điểm cho từng sinh viên
   const updatedScores = [];
@@ -802,36 +823,41 @@ const updateAttendanceScores = async (
     return [];
   }
 
+  // *** SỬA ĐỔI: CHỈ SỬ DỤNG ATTENDANCELOG LÀM NGUỒN CHÍNH THỐNG ***
+  // Lấy tất cả logs của các sinh viên trong lớp cho các session đã hoàn thành
+  const attendanceLogs = await AttendanceLog.aggregate([
+    {
+      $match: {
+        student_id: { $in: teachingClass.students },
+        session_id: { $in: completedSessionIds },
+        status: "present",
+      },
+    },
+    {
+      $group: {
+        _id: "$student_id",
+        presentCount: { $sum: 1 },
+      },
+    },
+  ]);
+
+  // Tạo map để tra cứu nhanh
+  const studentPresentMap = new Map();
+  attendanceLogs.forEach((log) => {
+    studentPresentMap.set(log._id.toString(), log.presentCount);
+  });
+
+  // Tính toán cho từng sinh viên
   for (const studentId of teachingClass.students) {
     try {
-      // --- Đếm số buổi vắng mặt ---
-      // 1. Lấy các session mà sinh viên có log 'present' hoặc được đánh dấu có mặt thủ công trong session
-      let present_count = 0;
-      for (const session of allCompletedSessions) {
-        // Kiểm tra trong AttendanceLog
-        const studentLog = await AttendanceLog.findOne({
-          student_id: studentId,
-          session_id: session._id,
-          status: "present",
-        });
+      // *** CHỈ ĐẾM TỪ ATTENDANCELOG - BỎ LOGIC KIỂM TRA students_present ***
+      const present_count = studentPresentMap.get(studentId.toString()) || 0;
 
-        // Kiểm tra trong danh sách students_present của AttendanceSession (ghi đè thủ công)
-        const isManuallyPresentInSession = session.students_present?.some(
-          (p) => p.student_id.toString() === studentId.toString()
-        );
-
-        if (studentLog || isManuallyPresentInSession) {
-          present_count++;
-        }
-      }
-
-      // 2. Tính số buổi vắng
+      // Tính số buổi vắng
       const absent_count = totalCompletedSessions - present_count;
-      // --- Kết thúc đếm số buổi vắng ---
 
-      // Tính điểm chuyên cần
-      let attendanceScore = 10 - absent_count * 2;
-      if (attendanceScore < 0) attendanceScore = 0;
+      // Tính điểm chuyên cần với validation
+      let attendanceScore = Math.max(0, 10 - absent_count * 2);
 
       // Kiểm tra có rớt vì vắng quá số buổi cho phép không
       const isFailedDueToAbsent = absent_count > maxAbsentAllowed;
@@ -851,14 +877,14 @@ const updateAttendanceScores = async (
         { new: true, upsert: true }
       );
 
-      // Lấy thông tin user để trả về (tương tự như trước)
+      // Lấy thông tin user để trả về
       const user = await User.findById(
         studentId,
         "full_name email school_info.student_id"
       ).lean();
 
       // Tạo đối tượng trả về
-      const attended_sessions = present_count; // Số buổi có mặt chính là present_count
+      const attended_sessions = present_count;
       const enhancedScore = {
         ...studentScore.toObject(),
         student_info: user
@@ -868,10 +894,10 @@ const updateAttendanceScores = async (
               email: user.email,
             }
           : null,
-        completed_sessions: totalCompletedSessions, // Số buổi đã diễn ra
-        total_planned_sessions: totalPlannedSessions, // Tổng số buổi dự kiến
-        attended_sessions: attended_sessions, // Số buổi có mặt
-        absent_sessions: absent_count, // Số buổi vắng (giờ đây là vắng không phép)
+        completed_sessions: totalCompletedSessions,
+        total_planned_sessions: totalPlannedSessions,
+        attended_sessions: attended_sessions,
+        absent_sessions: absent_count,
         // Tỷ lệ tham gia
         attendance_percentage:
           totalCompletedSessions > 0
@@ -882,7 +908,6 @@ const updateAttendanceScores = async (
           totalPlannedSessions > 0
             ? Math.round((totalCompletedSessions / totalPlannedSessions) * 100)
             : 0,
-        // Không cần trả về attendance_calculation và status ở đây vì getStudentScores sẽ tạo
       };
 
       updatedScores.push(enhancedScore);
@@ -1035,8 +1060,8 @@ exports.updateSessionStatus = async (req, res) => {
     // Tự động cập nhật điểm chuyên cần
     if (status === "completed") {
       // Chỉ gọi khi status là completed
-      if (typeof updateAttendanceScores === "function") {
-        await updateAttendanceScores(
+      if (typeof exports.updateAttendanceScores === "function") {
+        await exports.updateAttendanceScores(
           session.teaching_class_id,
           session.toObject()
         );

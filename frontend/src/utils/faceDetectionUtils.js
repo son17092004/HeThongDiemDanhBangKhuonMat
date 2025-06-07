@@ -138,10 +138,10 @@ export const detectAllFaces = async (videoRef, options = {}) => {
  * So sánh mô tả khuôn mặt với danh sách người dùng đã biết
  * @param {Float32Array} descriptor - Mô tả khuôn mặt
  * @param {Array} knownUsers - Danh sách người dùng với mô tả khuôn mặt
- * @param {number} threshold - Ngưỡng so sánh (mặc định: 0.6)
+ * @param {number} threshold - Ngưỡng so sánh (tăng từ 0.6 lên 0.65 để giảm false positive)
  * @returns {Object|null} - Người dùng được nhận diện hoặc null
  */
-export const findBestMatch = (descriptor, knownUsers, threshold = 0.6) => {
+export const findBestMatch = (descriptor, knownUsers, threshold = 0.65) => {
   if (!descriptor || !knownUsers || knownUsers.length === 0) {
     return null;
   }

@@ -16,6 +16,8 @@ import PendingApprovalPage from "./pages/PendingApprovalPage";
 import CompleteRegistrationPage from "./pages/CompleteRegistrationPage";
 import ProfilePage from "./pages/ProfilePage";
 import NotificationsPage from "./pages/NotificationsPage";
+import ForgotPasswordPage from "./pages/ForgotPasswordPage";
+import ResetPasswordPage from "./pages/ResetPasswordPage";
 
 // Student Pages
 import StudentClassesPage from "./pages/student/ClassesPage";
@@ -96,6 +98,8 @@ const App = () => {
         <Route path="login" element={<LoginPage />} />
         <Route path="register" element={<RegisterPage />} />
         <Route path="role-selection" element={<RoleSelectionPage />} />
+        <Route path="forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="reset-password/:token" element={<ResetPasswordPage />} />
 
         {/* Routes cho đăng nhập Google */}
         <Route path="login/success" element={<GoogleRedirectPage />} />

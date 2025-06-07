@@ -34,6 +34,8 @@ const UserSchema = new Schema({
     descriptors: [[[Number]]], // Mảng 3D chứa các face descriptors
     lastUpdated: { type: Date, default: Date.now },
   },
+  reset_password_token: String,
+  reset_password_expires: Date,
   created_at: { type: Date, default: Date.now },
   last_login: Date,
 });

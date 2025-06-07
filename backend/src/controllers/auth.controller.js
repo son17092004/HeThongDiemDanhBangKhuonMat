@@ -1,6 +1,8 @@
 const { User, MainClass, Notification } = require("../models/schemas");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
+const sendEmail = require("../utils/sendEmail");
 require("dotenv").config();
 // Tạo token JWT
 const generateToken = (id) => {
@@ -191,12 +193,39 @@ exports.register = async (req, res) => {
       faceFeatures.descriptors &&
       faceFeatures.descriptors.length > 0
     ) {
+      // Debug: Kiểm tra kiểu dữ liệu của descriptors
+      console.log(
+        "DEBUG REGISTER: faceFeatures.descriptors type:",
+        typeof faceFeatures.descriptors
+      );
+      console.log(
+        "DEBUG REGISTER: faceFeatures.descriptors length:",
+        faceFeatures.descriptors.length
+      );
+
+      // Đảm bảo descriptors là array, không phải string
+      let processedDescriptors = faceFeatures.descriptors;
+      if (typeof faceFeatures.descriptors === "string") {
+        console.log(
+          "WARNING REGISTER: faceFeatures.descriptors is a string, trying to parse..."
+        );
+        try {
+          processedDescriptors = JSON.parse(faceFeatures.descriptors);
+        } catch (parseError) {
+          console.error(
+            "Failed to parse faceFeatures.descriptors string in register:",
+            parseError
+          );
+          processedDescriptors = [];
+        }
+      }
+
       userData.faceFeatures = {
-        descriptors: faceFeatures.descriptors,
+        descriptors: processedDescriptors,
         lastUpdated: new Date(),
       };
       console.log(
-        `Đăng ký thủ công: Đã nhận ${faceFeatures.descriptors.length} dữ liệu khuôn mặt.`
+        `Đăng ký thủ công: Đã nhận ${processedDescriptors.length} dữ liệu khuôn mặt.`
       );
     }
 
@@ -537,12 +566,47 @@ exports.completeGoogleSignup = async (req, res) => {
       faceFeatures.descriptors &&
       faceFeatures.descriptors.length > 0
     ) {
+      // Debug: Kiểm tra kiểu dữ liệu của descriptors
+      console.log(
+        "DEBUG: faceFeatures.descriptors type:",
+        typeof faceFeatures.descriptors
+      );
+      console.log(
+        "DEBUG: faceFeatures.descriptors length:",
+        faceFeatures.descriptors.length
+      );
+      console.log(
+        "DEBUG: faceFeatures.descriptors[0] type:",
+        typeof faceFeatures.descriptors[0]
+      );
+      console.log(
+        "DEBUG: faceFeatures.descriptors[0] sample:",
+        faceFeatures.descriptors[0]
+      );
+
+      // Đảm bảo descriptors là array, không phải string
+      let processedDescriptors = faceFeatures.descriptors;
+      if (typeof faceFeatures.descriptors === "string") {
+        console.log(
+          "WARNING: faceFeatures.descriptors is a string, trying to parse..."
+        );
+        try {
+          processedDescriptors = JSON.parse(faceFeatures.descriptors);
+        } catch (parseError) {
+          console.error(
+            "Failed to parse faceFeatures.descriptors string:",
+            parseError
+          );
+          processedDescriptors = [];
+        }
+      }
+
       userData.faceFeatures = {
-        descriptors: faceFeatures.descriptors,
+        descriptors: processedDescriptors,
         lastUpdated: new Date(),
       };
       console.log(
-        `Đã nhận ${faceFeatures.descriptors.length} dữ liệu khuôn mặt từ người dùng`
+        `Đã nhận ${processedDescriptors.length} dữ liệu khuôn mặt từ người dùng`
       );
     }
 
@@ -951,14 +1015,103 @@ exports.checkUserStatus = async (req, res) => {
   }
 };
 
-module.exports = {
-  login: exports.login,
-  register: exports.register,
-  getCurrentUser: exports.getCurrentUser,
-  googleCallback: exports.googleCallback,
-  completeGoogleSignup: exports.completeGoogleSignup,
-  approveUser: exports.approveUser,
-  rejectUser: exports.rejectUser,
-  getPendingUsers: exports.getPendingUsers,
-  checkUserStatus: exports.checkUserStatus,
+// @desc    Quên mật khẩu
+// @route   POST /api/auth/forgot-password
+// @access  Public
+exports.forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+    const user = await User.findOne({ email });
+
+    if (!user) {
+      // Trả về thành công để tránh việc người khác dò email trong hệ thống
+      return res.status(200).json({
+        success: true,
+        message:
+          "Nếu email của bạn tồn tại trong hệ thống, bạn sẽ nhận được một liên kết đặt lại mật khẩu.",
+      });
+    }
+
+    // Tạo token
+    const resetToken = crypto.randomBytes(32).toString("hex");
+
+    user.reset_password_token = crypto
+      .createHash("sha256")
+      .update(resetToken)
+      .digest("hex");
+
+    user.reset_password_expires = Date.now() + 10 * 60 * 1000; // 10 phút
+
+    await user.save({ validateBeforeSave: false });
+
+    // Gửi email
+    const resetUrl = `${
+      process.env.FRONTEND_URL || "http://localhost:3000"
+    }/reset-password/${resetToken}`;
+
+    const message = `Bạn nhận được email này vì bạn (hoặc ai đó) đã yêu cầu đặt lại mật khẩu cho tài khoản của bạn. Vui lòng nhấn vào liên kết sau hoặc dán vào trình duyệt của bạn để hoàn tất quy trình:\n\n${resetUrl}\n\nLiên kết này sẽ hết hạn sau 10 phút.\n\nNếu bạn không yêu cầu điều này, vui lòng bỏ qua email này và mật khẩu của bạn sẽ không thay đổi.`;
+
+    try {
+      await sendEmail({
+        email: user.email,
+        subject: "Yêu cầu đặt lại mật khẩu",
+        message,
+      });
+
+      res.status(200).json({ success: true, message: "Email đã được gửi." });
+    } catch (err) {
+      user.reset_password_token = undefined;
+      user.reset_password_expires = undefined;
+      await user.save({ validateBeforeSave: false });
+
+      return res.status(500).json({
+        success: false,
+        message: "Lỗi khi gửi email. Vui lòng thử lại sau.",
+      });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Lỗi máy chủ" });
+  }
+};
+
+// @desc    Đặt lại mật khẩu
+// @route   PUT /api/auth/reset-password/:token
+// @access  Public
+exports.resetPassword = async (req, res) => {
+  try {
+    // 1) Lấy người dùng dựa trên token
+    const hashedToken = crypto
+      .createHash("sha256")
+      .update(req.params.token)
+      .digest("hex");
+
+    const user = await User.findOne({
+      reset_password_token: hashedToken,
+      reset_password_expires: { $gt: Date.now() },
+    });
+
+    // 2) Nếu token không hợp lệ hoặc đã hết hạn
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: "Token không hợp lệ hoặc đã hết hạn.",
+      });
+    }
+
+    // 3) Đặt mật khẩu mới
+    const salt = await bcrypt.genSalt(10);
+    user.password = await bcrypt.hash(req.body.password, salt);
+    user.reset_password_token = undefined;
+    user.reset_password_expires = undefined;
+    await user.save();
+
+    // 4) Gửi lại token JWT
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
+      expiresIn: process.env.JWT_EXPIRES_IN,
+    });
+
+    res.status(200).json({ success: true, token });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Lỗi máy chủ" });
+  }
 };

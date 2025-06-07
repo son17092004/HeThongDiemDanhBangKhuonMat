@@ -869,15 +869,6 @@ const TeacherMainClassPage = () => {
                     MSSV: {selectedStudent.school_info.student_id}
                   </Typography>
                 )}
-                {!selectedStudent.school_info?.student_id &&
-                  selectedStudent.school_info?.student_code && (
-                    <Typography
-                      variant="subtitle1"
-                      sx={{ mt: 1, fontWeight: "medium" }}
-                    >
-                      Mã SV (cũ): {selectedStudent.school_info.student_code}
-                    </Typography>
-                  )}
 
                 {/* Trạng thái và mã sinh viên */}
                 <Box
@@ -943,35 +934,52 @@ const TeacherMainClassPage = () => {
               <Divider sx={{ mb: 2 }} />
 
               <Grid container spacing={2}>
-                {selectedStudent.school_info?.department && (
+                {selectedStudent.school_info?.class_id?.major_id?.department_id
+                  ?.name && (
                   <Grid item xs={12} sm={6}>
                     <Typography variant="subtitle2" color="textSecondary">
                       Khoa
                     </Typography>
                     <Typography variant="body1" fontWeight="medium">
-                      {selectedStudent.school_info.department}
+                      {
+                        selectedStudent.school_info?.class_id?.major_id
+                          ?.department_id?.name
+                      }
                     </Typography>
                   </Grid>
                 )}
 
-                {selectedStudent.school_info?.major && (
+                {selectedStudent.school_info?.class_id?.major_id?.name && (
                   <Grid item xs={12} sm={6}>
                     <Typography variant="subtitle2" color="textSecondary">
                       Ngành học
                     </Typography>
                     <Typography variant="body1" fontWeight="medium">
-                      {selectedStudent.school_info.major}
+                      {selectedStudent.school_info.class_id.major_id.name} (
+                      {selectedStudent.school_info.class_id.major_id.code})
                     </Typography>
                   </Grid>
                 )}
 
-                {selectedStudent.school_info?.class && (
+                {selectedStudent.school_info?.class_id?.name && (
                   <Grid item xs={12} sm={6}>
                     <Typography variant="subtitle2" color="textSecondary">
                       Lớp
                     </Typography>
                     <Typography variant="body1" fontWeight="medium">
-                      {selectedStudent.school_info.class}
+                      {selectedStudent.school_info.class_id.name} (
+                      {selectedStudent.school_info.class_id.class_code})
+                    </Typography>
+                  </Grid>
+                )}
+
+                {selectedStudent.school_info?.student_id && (
+                  <Grid item xs={12} sm={6}>
+                    <Typography variant="subtitle2" color="textSecondary">
+                      MSSV
+                    </Typography>
+                    <Typography variant="body1" fontWeight="medium">
+                      {selectedStudent.school_info.student_id}
                     </Typography>
                   </Grid>
                 )}
@@ -999,23 +1007,23 @@ const TeacherMainClassPage = () => {
                 )}
 
                 {/* Hiển thị "Chưa cập nhật" cho các trường còn thiếu */}
-                {!selectedStudent.school_info?.student_id &&
-                  !selectedStudent.school_info?.student_code && (
-                    <Grid item xs={12} sm={6}>
-                      <Typography variant="subtitle2" color="textSecondary">
-                        MSSV
-                      </Typography>
-                      <Typography
-                        variant="body2"
-                        color="error.main"
-                        fontStyle="italic"
-                      >
-                        Chưa cập nhật
-                      </Typography>
-                    </Grid>
-                  )}
+                {!selectedStudent.school_info?.student_id && (
+                  <Grid item xs={12} sm={6}>
+                    <Typography variant="subtitle2" color="textSecondary">
+                      MSSV
+                    </Typography>
+                    <Typography
+                      variant="body2"
+                      color="error.main"
+                      fontStyle="italic"
+                    >
+                      Chưa cập nhật
+                    </Typography>
+                  </Grid>
+                )}
 
-                {!selectedStudent.school_info?.department && (
+                {!selectedStudent.school_info?.class_id?.major_id?.department_id
+                  ?.name && (
                   <Grid item xs={12} sm={6}>
                     <Typography variant="subtitle2" color="textSecondary">
                       Khoa
@@ -1030,7 +1038,7 @@ const TeacherMainClassPage = () => {
                   </Grid>
                 )}
 
-                {!selectedStudent.school_info?.major && (
+                {!selectedStudent.school_info?.class_id?.major_id?.name && (
                   <Grid item xs={12} sm={6}>
                     <Typography variant="subtitle2" color="textSecondary">
                       Ngành học
@@ -1045,7 +1053,7 @@ const TeacherMainClassPage = () => {
                   </Grid>
                 )}
 
-                {!selectedStudent.school_info?.class && (
+                {!selectedStudent.school_info?.class_id?.name && (
                   <Grid item xs={12} sm={6}>
                     <Typography variant="subtitle2" color="textSecondary">
                       Lớp

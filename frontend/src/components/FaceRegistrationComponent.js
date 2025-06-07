@@ -36,7 +36,7 @@ const videoConstraints = {
 
 const FaceRegistrationComponent = ({
   onFaceDataCapture,
-  requiredImages = 3,
+  requiredImages = 5,
 }) => {
   // Refs
   const webcamRef = useRef(null);
@@ -244,7 +244,7 @@ const FaceRegistrationComponent = ({
     cameraError,
   ]);
 
-  // 4. Capture and detect face
+  // 4. Capture and detect face với quality validation
   const captureImage = async () => {
     // Basic checks
     if (!webcamRef.current || !cameraReady || isProcessing || !modelsLoaded) {
@@ -272,7 +272,7 @@ const FaceRegistrationComponent = ({
         throw new Error("Không thể chụp ảnh từ webcam.");
       }
 
-      // Perform face detection
+      // Perform face detection với quality validation
       const detections = await detectFace(imageSrc);
 
       if (!detections || !detections.descriptor) {
@@ -287,24 +287,71 @@ const FaceRegistrationComponent = ({
         return;
       }
 
-      // Store image and descriptor
+      // Quality validation: Kiểm tra độ tin cậy detection
+      const detectionScore = detections.detection.score;
+      if (detectionScore < 0.8) {
+        enqueueSnackbar(
+          `Chất lượng khuôn mặt không đủ tốt (${(detectionScore * 100).toFixed(
+            1
+          )}%). Hãy di chuyển đến vị trí có ánh sáng tốt hơn.`,
+          { variant: "warning" }
+        );
+        setIsProcessing(false);
+        return;
+      }
+
+      // Diversity validation: Kiểm tra xem ảnh mới có đa dạng không
+      const newDescriptor = detections.descriptor;
+      let tooSimilar = false;
+
+      for (const existingImage of capturedImages) {
+        const existingDescriptor = new Float32Array(existingImage.descriptor);
+        const distance = faceapi.euclideanDistance(
+          newDescriptor,
+          existingDescriptor
+        );
+
+        // Nếu quá giống ảnh cũ (distance < 0.3), từ chối
+        if (distance < 0.3) {
+          tooSimilar = true;
+          break;
+        }
+      }
+
+      if (tooSimilar) {
+        enqueueSnackbar(
+          "Ảnh này quá giống ảnh đã chụp. Hãy thay đổi góc độ hoặc biểu cảm.",
+          { variant: "warning" }
+        );
+        setIsProcessing(false);
+        return;
+      }
+
+      // Store image and descriptor với metadata
       const newImageData = {
         img: imageSrc,
         descriptor: Array.from(detections.descriptor), // Ensure serializable
+        quality: detectionScore, // Lưu chất lượng detection
+        timestamp: Date.now(), // Timestamp để tracking
       };
       const updatedImages = [...capturedImages, newImageData];
       setCapturedImages(updatedImages);
 
-      enqueueSnackbar(`Đã chụp ảnh ${updatedImages.length}/${requiredImages}`, {
-        variant: "success",
-        autoHideDuration: 1500,
-      });
+      enqueueSnackbar(
+        `Đã chụp ảnh ${updatedImages.length}/${requiredImages} (Chất lượng: ${(
+          detectionScore * 100
+        ).toFixed(1)}%)`,
+        {
+          variant: "success",
+          autoHideDuration: 2000,
+        }
+      );
 
       // If enough images captured, notify parent immediately
       if (updatedImages.length >= requiredImages) {
         onFaceDataCapture(updatedImages); // Pass all captured data
-        enqueueSnackbar(`Đã chụp đủ ${requiredImages} ảnh!`, {
-          variant: "info",
+        enqueueSnackbar(`Đã chụp đủ ${requiredImages} ảnh chất lượng cao!`, {
+          variant: "success",
         });
       }
     } catch (err) {

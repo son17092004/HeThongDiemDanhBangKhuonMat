@@ -44,7 +44,7 @@ import { loadModels, detectFace } from "../utils/faceUtils";
 import FaceRegistrationComponent from "../components/FaceRegistrationComponent";
 
 const API_URL = process.env.REACT_APP_API_URL;
-const REQUIRED_IMAGES = 3;
+const REQUIRED_IMAGES = 5;
 
 const FaceRegistrationPage = () => {
   const navigate = useNavigate();

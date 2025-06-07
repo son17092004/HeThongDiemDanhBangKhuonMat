@@ -75,15 +75,12 @@ exports.createAbsenceRequest = async (req, res, next) => {
       });
     }
 
-    // Kiểm tra xem buổi học đã kết thúc chưa
-    // Giả sử attendanceSession.end_time là một đối tượng Date hoặc một chuỗi ISO có thể parse được
-    if (
-      attendanceSession.end_time &&
-      new Date(attendanceSession.end_time) < new Date()
-    ) {
+    // Kiểm tra xem buổi học có đang ở trạng thái 'pending' không
+    if (attendanceSession.status !== "pending") {
       return res.status(400).json({
         success: false,
-        message: "Không thể gửi đơn xin nghỉ cho buổi học đã kết thúc.",
+        message:
+          "Chỉ có thể gửi đơn xin nghỉ cho các buổi học sắp diễn ra (trạng thái 'pending').",
       });
     }
 

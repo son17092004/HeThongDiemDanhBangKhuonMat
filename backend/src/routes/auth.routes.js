@@ -10,6 +10,8 @@ const {
   rejectUser,
   getPendingUsers,
   checkUserStatus,
+  forgotPassword,
+  resetPassword,
 } = require("../controllers/auth.controller");
 const { protect, authorize } = require("../middlewares/auth.middleware");
 const passport = require("passport");
@@ -76,5 +78,13 @@ router.put("/reject/:id", protect, authorize(["admin", "teacher"]), rejectUser);
 // @route   GET /api/auth/check-status
 // @desc    Kiểm tra trạng thái người dùng theo email hoặc Google ID
 router.get("/check-status", checkUserStatus);
+
+// @route   POST /api/auth/forgot-password
+// @desc    Quên mật khẩu
+router.post("/forgot-password", forgotPassword);
+
+// @route   PUT /api/auth/reset-password/:token
+// @desc    Đặt lại mật khẩu
+router.put("/reset-password/:token", resetPassword);
 
 module.exports = router;
