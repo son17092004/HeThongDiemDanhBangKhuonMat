@@ -76,6 +76,7 @@ exports.login = async (req, res) => {
         role: user.role,
         status: user.status,
         avatar_url: user.avatar_url,
+        faceFeatures: user.faceFeatures,
       },
     });
   } catch (error) {
@@ -400,11 +401,7 @@ exports.register = async (req, res) => {
           role: user.role,
           status: user.status,
           avatar_url: user.avatar_url,
-          has_face_data: !!(
-            userData.faceFeatures &&
-            userData.faceFeatures.descriptors &&
-            userData.faceFeatures.descriptors.length > 0
-          ),
+          has_face_data: !!userData.faceFeatures,
         },
         message:
           user.status === "approved"
