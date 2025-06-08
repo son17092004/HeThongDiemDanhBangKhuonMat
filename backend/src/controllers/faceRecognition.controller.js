@@ -308,6 +308,26 @@ exports.verifyAttendance = async (req, res) => {
       await session.save();
     }
 
+    // *** THÊM: Cập nhật điểm chuyên cần sau khi điểm danh tự động ***
+    try {
+      const attendanceController = require("./attendance.controller");
+      if (typeof attendanceController.updateAttendanceScores === "function") {
+        await attendanceController.updateAttendanceScores(
+          session.teaching_class_id,
+          null // Không truyền session object vì chưa completed
+        );
+        console.log(
+          `[faceRecognitionAttendance] Đã cập nhật điểm chuyên cần cho class ${session.teaching_class_id}`
+        );
+      }
+    } catch (scoreError) {
+      console.error(
+        `[faceRecognitionAttendance] Lỗi khi cập nhật điểm chuyên cần:`,
+        scoreError
+      );
+      // Không trả lỗi cho client, chỉ log
+    }
+
     res.status(200).json({
       success: true,
       message: "Điểm danh bằng khuôn mặt thành công",
@@ -469,6 +489,26 @@ exports.manualAttendance = async (req, res) => {
           await session.save(); // Save if changed
         }
       }
+    }
+
+    // *** THÊM: Cập nhật điểm chuyên cần sau khi điểm danh thủ công ***
+    try {
+      const attendanceController = require("./attendance.controller");
+      if (typeof attendanceController.updateAttendanceScores === "function") {
+        await attendanceController.updateAttendanceScores(
+          session.teaching_class_id,
+          null // Không truyền session object vì chưa completed
+        );
+        console.log(
+          `[manualAttendance] Đã cập nhật điểm chuyên cần cho class ${session.teaching_class_id}`
+        );
+      }
+    } catch (scoreError) {
+      console.error(
+        `[manualAttendance] Lỗi khi cập nhật điểm chuyên cần:`,
+        scoreError
+      );
+      // Không trả lỗi cho client, chỉ log
     }
 
     res.status(200).json({

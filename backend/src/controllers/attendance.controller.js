@@ -592,6 +592,25 @@ exports.getStudentScores = async (req, res) => {
       });
     }
 
+    // *** THÊM: Cập nhật điểm chuyên cần trước khi lấy ***
+    // Lấy danh sách các lớp mà sinh viên đang học
+    const teachingClasses = await TeachingClass.find({
+      students: studentId,
+    }).select("_id");
+
+    // Cập nhật điểm cho từng lớp
+    for (const teachingClass of teachingClasses) {
+      try {
+        await exports.updateAttendanceScores(teachingClass._id);
+      } catch (scoreError) {
+        console.error(
+          `[getStudentScores] Lỗi khi cập nhật điểm cho class ${teachingClass._id}:`,
+          scoreError
+        );
+        // Tiếp tục với các lớp khác
+      }
+    }
+
     // Lấy danh sách điểm
     const scores = await StudentScore.find({ student_id: studentId })
       .populate({
@@ -805,158 +824,198 @@ exports.calculateAttendanceScores = async (req, res) => {
   }
 };
 
+// Map để theo dõi các class đang được tính điểm, tránh race condition
+const scoringInProgress = new Map();
+
 // Hàm hỗ trợ tính toán điểm chuyên cần
 exports.updateAttendanceScores = async (
   teachingClassId,
   justCompletedSessionObject = null
 ) => {
-  // Lấy thông tin lớp học
-  const teachingClass = await TeachingClass.findById(teachingClassId).populate(
-    "subject_id",
-    "name code"
-  );
+  const classIdStr = teachingClassId.toString();
 
-  if (!teachingClass) {
-    throw new Error("Không tìm thấy lớp học");
-  }
-
-  // Lấy tất cả phiên điểm danh đã hoàn thành từ DB
-  let completedSessionsFromDB = await AttendanceSession.find({
-    teaching_class_id: teachingClassId,
-    status: "completed",
-  }).lean();
-
-  // Hợp nhất với session vừa hoàn thành nếu có và chưa tồn tại
-  let allCompletedSessions = [...completedSessionsFromDB];
-  if (justCompletedSessionObject && justCompletedSessionObject._id) {
-    const existingIndex = allCompletedSessions.findIndex(
-      (s) => s._id.toString() === justCompletedSessionObject._id.toString()
+  // Kiểm tra xem class này đang được tính điểm không
+  if (scoringInProgress.has(classIdStr)) {
+    console.log(
+      `[updateAttendanceScores] Class ${classIdStr} đang được tính điểm, bỏ qua`
     );
-    if (existingIndex === -1) {
-      allCompletedSessions.push(
-        JSON.parse(JSON.stringify(justCompletedSessionObject))
-      );
-    } else {
-      allCompletedSessions[existingIndex] = JSON.parse(
-        JSON.stringify(justCompletedSessionObject)
-      );
-    }
-  }
-  allCompletedSessions = Array.from(
-    new Map(
-      allCompletedSessions.map((item) => [item._id.toString(), item])
-    ).values()
-  );
-
-  const completedSessionIds = allCompletedSessions.map((s) => s._id);
-
-  // Lấy số lượng phiên điểm danh đã hoàn thành
-  const totalCompletedSessions = allCompletedSessions.length;
-  const totalPlannedSessions = teachingClass.total_sessions || 0;
-  const maxAbsentAllowed = teachingClass.max_absent_allowed || 3;
-
-  // Cập nhật điểm cho từng sinh viên
-  const updatedScores = [];
-
-  if (!teachingClass.students || teachingClass.students.length === 0) {
     return [];
   }
 
-  // *** SỬA ĐỔI: CHỈ SỬ DỤNG ATTENDANCELOG LÀM NGUỒN CHÍNH THỐNG ***
-  // Lấy tất cả logs của các sinh viên trong lớp cho các session đã hoàn thành
-  const attendanceLogs = await AttendanceLog.aggregate([
-    {
-      $match: {
-        student_id: { $in: teachingClass.students },
-        session_id: { $in: completedSessionIds },
-        status: "present",
-      },
-    },
-    {
-      $group: {
-        _id: "$student_id",
-        presentCount: { $sum: 1 },
-      },
-    },
-  ]);
+  // Đánh dấu class này đang được tính điểm
+  scoringInProgress.set(classIdStr, Date.now());
 
-  // Tạo map để tra cứu nhanh
-  const studentPresentMap = new Map();
-  attendanceLogs.forEach((log) => {
-    studentPresentMap.set(log._id.toString(), log.presentCount);
-  });
+  try {
+    // Lấy thông tin lớp học
+    const teachingClass = await TeachingClass.findById(
+      teachingClassId
+    ).populate("subject_id", "name code");
 
-  // Tính toán cho từng sinh viên
-  for (const studentId of teachingClass.students) {
-    try {
-      // *** CHỈ ĐẾM TỪ ATTENDANCELOG - BỎ LOGIC KIỂM TRA students_present ***
-      const present_count = studentPresentMap.get(studentId.toString()) || 0;
-
-      // Tính số buổi vắng
-      const absent_count = totalCompletedSessions - present_count;
-
-      // Tính điểm chuyên cần với validation
-      let attendanceScore = Math.max(0, 10 - absent_count * 2);
-
-      // Kiểm tra có rớt vì vắng quá số buổi cho phép không
-      const isFailedDueToAbsent = absent_count > maxAbsentAllowed;
-
-      const scoreUpdateData = {
-        total_sessions: totalCompletedSessions,
-        absent_sessions: absent_count,
-        attendance_score: attendanceScore,
-        max_absent_allowed: maxAbsentAllowed,
-        is_failed_due_to_absent: isFailedDueToAbsent,
-        last_updated: Date.now(),
-      };
-
-      let studentScore = await StudentScore.findOneAndUpdate(
-        { student_id: studentId, teaching_class_id: teachingClassId },
-        { $set: scoreUpdateData },
-        { new: true, upsert: true }
-      );
-
-      // Lấy thông tin user để trả về
-      const user = await User.findById(
-        studentId,
-        "full_name email school_info.student_id"
-      ).lean();
-
-      // Tạo đối tượng trả về
-      const attended_sessions = present_count;
-      const enhancedScore = {
-        ...studentScore.toObject(),
-        student_info: user
-          ? {
-              full_name: user.full_name,
-              student_id: user.school_info?.student_id,
-              email: user.email,
-            }
-          : null,
-        completed_sessions: totalCompletedSessions,
-        total_planned_sessions: totalPlannedSessions,
-        attended_sessions: attended_sessions,
-        absent_sessions: absent_count,
-        // Tỷ lệ tham gia
-        attendance_percentage:
-          totalCompletedSessions > 0
-            ? Math.round((attended_sessions / totalCompletedSessions) * 100)
-            : 0,
-        // Tiến độ khóa học
-        course_progress:
-          totalPlannedSessions > 0
-            ? Math.round((totalCompletedSessions / totalPlannedSessions) * 100)
-            : 0,
-      };
-
-      updatedScores.push(enhancedScore);
-    } catch (err) {
-      console.error(`Lỗi khi cập nhật điểm cho sinh viên ${studentId}:`, err);
-      // Tiếp tục với sinh viên tiếp theo
+    if (!teachingClass) {
+      throw new Error("Không tìm thấy lớp học");
     }
-  }
 
-  return updatedScores;
+    // Lấy tất cả phiên điểm danh đã hoàn thành từ DB
+    let completedSessionsFromDB = await AttendanceSession.find({
+      teaching_class_id: teachingClassId,
+      status: "completed",
+    }).lean();
+
+    // Hợp nhất với session vừa hoàn thành nếu có và chưa tồn tại
+    let allCompletedSessions = [...completedSessionsFromDB];
+    if (justCompletedSessionObject && justCompletedSessionObject._id) {
+      const existingIndex = allCompletedSessions.findIndex(
+        (s) => s._id.toString() === justCompletedSessionObject._id.toString()
+      );
+      if (existingIndex === -1) {
+        allCompletedSessions.push(
+          JSON.parse(JSON.stringify(justCompletedSessionObject))
+        );
+      } else {
+        allCompletedSessions[existingIndex] = JSON.parse(
+          JSON.stringify(justCompletedSessionObject)
+        );
+      }
+    }
+    allCompletedSessions = Array.from(
+      new Map(
+        allCompletedSessions.map((item) => [item._id.toString(), item])
+      ).values()
+    );
+
+    const completedSessionIds = allCompletedSessions.map((s) => s._id);
+
+    // Lấy số lượng phiên điểm danh đã hoàn thành
+    const totalCompletedSessions = allCompletedSessions.length;
+    const totalPlannedSessions = teachingClass.total_sessions || 0;
+    const maxAbsentAllowed = teachingClass.max_absent_allowed || 3;
+
+    // Cập nhật điểm cho từng sinh viên
+    const updatedScores = [];
+
+    if (!teachingClass.students || teachingClass.students.length === 0) {
+      return [];
+    }
+
+    // *** SỬA ĐỔI: CHỈ SỬ DỤNG ATTENDANCELOG LÀM NGUỒN CHÍNH THỐNG ***
+    // Lấy tất cả logs của các sinh viên trong lớp cho các session đã hoàn thành
+    console.log(
+      `[updateAttendanceScores] Class ${classIdStr}: Tính điểm cho ${totalCompletedSessions} session hoàn thành`
+    );
+    console.log(
+      `[updateAttendanceScores] Class ${classIdStr}: Session IDs:`,
+      completedSessionIds.map((id) => id.toString())
+    );
+
+    const attendanceLogs = await AttendanceLog.aggregate([
+      {
+        $match: {
+          student_id: { $in: teachingClass.students },
+          session_id: { $in: completedSessionIds },
+          status: "present",
+        },
+      },
+      {
+        $group: {
+          _id: "$student_id",
+          presentCount: { $sum: 1 },
+        },
+      },
+    ]);
+
+    console.log(
+      `[updateAttendanceScores] Class ${classIdStr}: Tìm thấy ${attendanceLogs.length} sinh viên có attendance logs present`
+    );
+
+    // Tạo map để tra cứu nhanh
+    const studentPresentMap = new Map();
+    attendanceLogs.forEach((log) => {
+      studentPresentMap.set(log._id.toString(), log.presentCount);
+    });
+
+    // Tính toán cho từng sinh viên
+    for (const studentId of teachingClass.students) {
+      try {
+        // *** CHỈ ĐẾM TỪ ATTENDANCELOG - BỎ LOGIC KIỂM TRA students_present ***
+        const present_count = studentPresentMap.get(studentId.toString()) || 0;
+
+        // Tính số buổi vắng
+        const absent_count = totalCompletedSessions - present_count;
+
+        // Tính điểm chuyên cần với validation
+        let attendanceScore = Math.max(0, 10 - absent_count * 2);
+
+        // Kiểm tra có rớt vì vắng quá số buổi cho phép không
+        const isFailedDueToAbsent = absent_count > maxAbsentAllowed;
+
+        const scoreUpdateData = {
+          total_sessions: totalCompletedSessions,
+          absent_sessions: absent_count,
+          attendance_score: attendanceScore,
+          max_absent_allowed: maxAbsentAllowed,
+          is_failed_due_to_absent: isFailedDueToAbsent,
+          last_updated: Date.now(),
+        };
+
+        let studentScore = await StudentScore.findOneAndUpdate(
+          { student_id: studentId, teaching_class_id: teachingClassId },
+          { $set: scoreUpdateData },
+          { new: true, upsert: true }
+        );
+
+        // Lấy thông tin user để trả về
+        const user = await User.findById(
+          studentId,
+          "full_name email school_info.student_id"
+        ).lean();
+
+        // Tạo đối tượng trả về
+        const attended_sessions = present_count;
+        const enhancedScore = {
+          ...studentScore.toObject(),
+          student_info: user
+            ? {
+                full_name: user.full_name,
+                student_id: user.school_info?.student_id,
+                email: user.email,
+              }
+            : null,
+          completed_sessions: totalCompletedSessions,
+          total_planned_sessions: totalPlannedSessions,
+          attended_sessions: attended_sessions,
+          absent_sessions: absent_count,
+          // Tỷ lệ tham gia
+          attendance_percentage:
+            totalCompletedSessions > 0
+              ? Math.round((attended_sessions / totalCompletedSessions) * 100)
+              : 0,
+          // Tiến độ khóa học
+          course_progress:
+            totalPlannedSessions > 0
+              ? Math.round(
+                  (totalCompletedSessions / totalPlannedSessions) * 100
+                )
+              : 0,
+        };
+
+        updatedScores.push(enhancedScore);
+      } catch (err) {
+        console.error(`Lỗi khi cập nhật điểm cho sinh viên ${studentId}:`, err);
+        // Tiếp tục với sinh viên tiếp theo
+      }
+    }
+
+    return updatedScores;
+  } catch (error) {
+    console.error(
+      `[updateAttendanceScores] Lỗi khi tính điểm cho class ${classIdStr}:`,
+      error
+    );
+    throw error;
+  } finally {
+    // Xóa class khỏi map khi hoàn thành
+    scoringInProgress.delete(classIdStr);
+  }
 };
 
 /**
@@ -1096,18 +1155,31 @@ exports.updateSessionStatus = async (req, res) => {
       }
     }
 
-    // Tự động cập nhật điểm chuyên cần
-    if (status === "completed") {
-      // Chỉ gọi khi status là completed
-      if (typeof exports.updateAttendanceScores === "function") {
-        await exports.updateAttendanceScores(
-          session.teaching_class_id,
-          session.toObject()
-        );
-      }
-    }
-
+    // Lưu session TRƯỚC KHI tính điểm
     await session.save();
+
+    // Tự động cập nhật điểm chuyên cần SAU KHI session đã được lưu
+    if (status === "completed") {
+      // Đợi một chút để đảm bảo session đã được commit vào database
+      setTimeout(async () => {
+        try {
+          if (typeof exports.updateAttendanceScores === "function") {
+            await exports.updateAttendanceScores(
+              session.teaching_class_id,
+              session.toObject()
+            );
+            console.log(
+              `[updateSessionStatus] Đã cập nhật điểm chuyên cần cho lớp ${session.teaching_class_id}`
+            );
+          }
+        } catch (scoreError) {
+          console.error(
+            `[updateSessionStatus] Lỗi khi cập nhật điểm chuyên cần cho lớp ${session.teaching_class_id}:`,
+            scoreError
+          );
+        }
+      }, 500); // Đợi 500ms
+    }
 
     res.status(200).json({
       success: true,

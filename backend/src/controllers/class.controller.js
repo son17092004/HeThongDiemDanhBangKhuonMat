@@ -2411,6 +2411,23 @@ exports.getClassStudents = async (req, res) => {
       });
     }
 
+    // *** THÊM: Cập nhật điểm chuyên cần trước khi lấy danh sách ***
+    try {
+      const attendanceController = require("./attendance.controller");
+      if (typeof attendanceController.updateAttendanceScores === "function") {
+        await attendanceController.updateAttendanceScores(id);
+        console.log(
+          `[getClassStudents] Đã cập nhật điểm chuyên cần cho class ${id}`
+        );
+      }
+    } catch (scoreError) {
+      console.error(
+        `[getClassStudents] Lỗi khi cập nhật điểm chuyên cần:`,
+        scoreError
+      );
+      // Tiếp tục với logic cũ nếu có lỗi
+    }
+
     const students = await User.find({
       _id: { $in: teachingClass.students },
     }).select("_id full_name email avatar_url school_info.student_id");
@@ -3218,16 +3235,28 @@ exports.getStudentAttendanceDetail = async (req, res) => {
       };
     });
 
-    // Đếm buổi vắng và tính điểm
-    const absentCountInDetails = attendanceDetails.filter(
+    // *** SỬA LOGIC: CHỈ ĐẾM BUỔI VẮNG TRONG CÁC SESSION ĐÃ HOÀN THÀNH ***
+    const completedAttendanceDetails = attendanceDetails.filter(
+      (detail) => detail.session_status === "completed"
+    );
+
+    const absentCountInCompletedSessions = completedAttendanceDetails.filter(
       (a) => a.attendance_status === "absent"
     ).length;
 
-    const attendanceScore = Math.max(0, 10 - absentCountInDetails * 2);
-    const isFailedDueToAbsent =
-      absentCountInDetails > (teachingClass.max_absent_allowed || 3);
+    const presentCountInCompletedSessions = completedAttendanceDetails.filter(
+      (a) => a.attendance_status === "present"
+    ).length;
 
-    // Cập nhật vào database
+    const totalCompletedSessions = completedAttendanceDetails.length;
+    const attendanceScore = Math.max(
+      0,
+      10 - absentCountInCompletedSessions * 2
+    );
+    const isFailedDueToAbsent =
+      absentCountInCompletedSessions > (teachingClass.max_absent_allowed || 3);
+
+    // Cập nhật vào database với logic mới
     await StudentScore.findOneAndUpdate(
       {
         teaching_class_id: classId,
@@ -3235,8 +3264,10 @@ exports.getStudentAttendanceDetail = async (req, res) => {
       },
       {
         $set: {
-          absent_sessions: absentCountInDetails,
+          total_sessions: totalCompletedSessions, // Số buổi đã hoàn thành
+          absent_sessions: absentCountInCompletedSessions, // Chỉ đếm vắng trong completed
           attendance_score: attendanceScore,
+          max_absent_allowed: teachingClass.max_absent_allowed || 3,
           is_failed_due_to_absent: isFailedDueToAbsent,
           last_updated: new Date(),
         },
@@ -3253,23 +3284,24 @@ exports.getStudentAttendanceDetail = async (req, res) => {
       is_failed_due_to_absent: isFailedDueToAbsent,
     };
 
-    // Thống kê tổng quan
+    // Thống kê tổng quan (cập nhật để sử dụng logic mới)
     const totalSessions = sessions.length;
     const completedSessions = sessions.filter(
       (s) => s.status === "completed"
     ).length;
-    const presentCount = attendanceDetails.filter(
-      (a) => a.attendance_status === "present"
-    ).length;
-    const lateCount = attendanceDetails.filter(
+
+    // Chỉ đếm trong completed sessions
+    const lateCountInCompleted = completedAttendanceDetails.filter(
       (a) => a.attendance_status === "late"
     ).length;
-    const excusedCount = attendanceDetails.filter(
+    const excusedCountInCompleted = completedAttendanceDetails.filter(
       (a) => a.attendance_status === "excused"
     ).length;
 
     const attendanceRate =
-      completedSessions > 0 ? (presentCount / completedSessions) * 100 : 0;
+      totalCompletedSessions > 0
+        ? (presentCountInCompletedSessions / totalCompletedSessions) * 100
+        : 0;
 
     res.status(200).json({
       success: true,
@@ -3292,12 +3324,12 @@ exports.getStudentAttendanceDetail = async (req, res) => {
           max_absent_allowed: teachingClass.max_absent_allowed || 3,
         },
         attendance_summary: {
-          total_sessions: totalSessions,
-          completed_sessions: completedSessions,
-          present_count: presentCount,
-          absent_count: absentCountInDetails,
-          late_count: lateCount,
-          excused_count: excusedCount,
+          total_sessions: totalSessions, // Tổng sessions dự kiến
+          completed_sessions: totalCompletedSessions, // Số sessions đã hoàn thành
+          present_count: presentCountInCompletedSessions, // Có mặt trong completed sessions
+          absent_count: absentCountInCompletedSessions, // Vắng trong completed sessions
+          late_count: lateCountInCompleted, // Muộn trong completed sessions
+          excused_count: excusedCountInCompleted, // Có phép trong completed sessions
           attendance_rate: Math.round(attendanceRate * 100) / 100,
           attendance_score: studentScore.attendance_score,
           is_failed_due_to_absent: studentScore.is_failed_due_to_absent,
@@ -3407,11 +3439,37 @@ exports.updateStudentAttendance = async (req, res) => {
 
     await session.save();
 
-    // Cập nhật điểm chuyên cần của sinh viên
-    const updatedScore = await this.updateStudentAttendanceScore(
-      classId,
-      studentId
-    );
+    // *** SỬA: Cập nhật điểm chuyên cần bằng logic mới ***
+    let updatedScore = null;
+    try {
+      const attendanceController = require("./attendance.controller");
+      if (typeof attendanceController.updateAttendanceScores === "function") {
+        const allScores = await attendanceController.updateAttendanceScores(
+          classId,
+          null // Không truyền session object vì chưa completed
+        );
+        // Tìm score của sinh viên này trong kết quả
+        updatedScore =
+          allScores.find(
+            (score) =>
+              score.student_id &&
+              score.student_id.toString() === studentId.toString()
+          ) || null;
+        console.log(
+          `[updateStudentAttendance] Đã cập nhật điểm chuyên cần cho class ${classId}`
+        );
+      }
+    } catch (scoreError) {
+      console.error(
+        `[updateStudentAttendance] Lỗi khi cập nhật điểm chuyên cần:`,
+        scoreError
+      );
+      // Fallback to old logic
+      updatedScore = await this.updateStudentAttendanceScore(
+        classId,
+        studentId
+      );
+    }
 
     res.status(200).json({
       success: true,
@@ -3438,16 +3496,24 @@ exports.updateStudentAttendanceScore = async (classId, studentId) => {
     const teachingClass = await TeachingClass.findById(classId);
     if (!teachingClass) return;
 
-    // Đếm buổi vắng trực tiếp từ AttendanceLog với status "absent"
-    const sessions = await AttendanceSession.find({
+    // CHỈ LẤY SESSIONS ĐÃ HOÀN THÀNH
+    const completedSessions = await AttendanceSession.find({
       teaching_class_id: classId,
+      status: "completed", // CHỈ những buổi đã hoàn thành
     });
 
-    const absentCount = await AttendanceLog.countDocuments({
-      session_id: { $in: sessions.map((s) => s._id) },
+    const completedSessionIds = completedSessions.map((s) => s._id);
+    const totalCompletedSessions = completedSessions.length;
+
+    // Đếm số buổi có mặt từ AttendanceLog (chỉ trong completed sessions)
+    const presentCount = await AttendanceLog.countDocuments({
+      session_id: { $in: completedSessionIds },
       student_id: studentId,
-      status: "absent",
+      status: "present",
     });
+
+    // Tính số buổi vắng = tổng buổi hoàn thành - số buổi có mặt
+    const absentCount = totalCompletedSessions - presentCount;
 
     // Tính điểm chuyên cần (10 - số buổi vắng * 2, tối thiểu 0)
     const attendanceScore = Math.max(0, 10 - absentCount * 2);
@@ -3455,13 +3521,6 @@ exports.updateStudentAttendanceScore = async (classId, studentId) => {
     // Kiểm tra có bị hỏng môn do vắng quá nhiều không
     const maxAbsentAllowed = teachingClass.max_absent_allowed || 3;
     const isFailedDueToAbsent = absentCount > maxAbsentAllowed;
-
-    console.log(
-      `Cập nhật điểm cho sinh viên ${studentId} trong lớp ${classId}:`
-    );
-    console.log(`- Số buổi vắng: ${absentCount}`);
-    console.log(`- Điểm chuyên cần: ${attendanceScore}`);
-    console.log(`- Hỏng môn do vắng: ${isFailedDueToAbsent}`);
 
     // Cập nhật hoặc tạo student score
     const updatedScore = await StudentScore.findOneAndUpdate(
@@ -3471,8 +3530,10 @@ exports.updateStudentAttendanceScore = async (classId, studentId) => {
       },
       {
         $set: {
+          total_sessions: totalCompletedSessions, // Thêm field này
           absent_sessions: absentCount,
           attendance_score: attendanceScore,
+          max_absent_allowed: maxAbsentAllowed, // Thêm field này
           is_failed_due_to_absent: isFailedDueToAbsent,
           last_updated: new Date(),
         },
