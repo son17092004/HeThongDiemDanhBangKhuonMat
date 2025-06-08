@@ -399,6 +399,12 @@ exports.register = async (req, res) => {
           full_name: user.full_name,
           role: user.role,
           status: user.status,
+          avatar_url: user.avatar_url,
+          has_face_data: !!(
+            userData.faceFeatures &&
+            userData.faceFeatures.descriptors &&
+            userData.faceFeatures.descriptors.length > 0
+          ),
         },
         message:
           user.status === "approved"
