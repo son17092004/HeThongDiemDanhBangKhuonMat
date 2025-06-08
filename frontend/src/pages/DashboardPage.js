@@ -303,18 +303,6 @@ const DashboardPage = () => {
   const studentInfo = useMemo(() => {
     if (user.role !== "student") return null;
 
-    // DEBUG: Log để kiểm tra cấu trúc faceFeatures
-    console.log("DEBUG: Full user object:", user);
-    console.log("DEBUG: user.faceFeatures:", user.faceFeatures);
-    console.log(
-      "DEBUG: user.faceFeatures?.descriptors:",
-      user.faceFeatures?.descriptors
-    );
-    console.log(
-      "DEBUG: user.faceFeatures?.descriptors?.length:",
-      user.faceFeatures?.descriptors?.length
-    );
-
     return {
       name: user.full_name || "Sinh viên",
       studentId: user.school_info?.student_id || "Chưa cập nhật",
