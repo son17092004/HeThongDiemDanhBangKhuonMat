@@ -194,9 +194,61 @@ const FaceRegistrationPage = () => {
     setRegistrationSuccess(false);
 
     try {
+      // Enhanced validation and processing for face descriptors
+      console.log(
+        "DEBUG FACE_REG_PAGE: capturedFaceData before processing:",
+        capturedFaceData
+      );
+
+      const descriptors = capturedFaceData.map((data) => data.descriptor);
+      console.log("DEBUG FACE_REG_PAGE: Extracted descriptors:", descriptors);
+
+      // Validate descriptors before sending
+      const validDescriptors = descriptors.filter((desc) => {
+        if (!desc || !Array.isArray(desc) || desc.length !== 128) {
+          console.warn("FACE_REG_PAGE: Invalid descriptor detected:", desc);
+          return false;
+        }
+        const hasValidValues = desc.every(
+          (val) =>
+            val !== null &&
+            val !== undefined &&
+            typeof val === "number" &&
+            !isNaN(val)
+        );
+        if (!hasValidValues) {
+          console.warn(
+            "FACE_REG_PAGE: Descriptor contains null/invalid values:",
+            desc
+          );
+          return false;
+        }
+        return true;
+      });
+
+      if (validDescriptors.length === 0) {
+        throw new Error(
+          "Không có dữ liệu khuôn mặt hợp lệ. Vui lòng chụp lại."
+        );
+      }
+
+      if (validDescriptors.length < capturedFaceData.length) {
+        console.warn(
+          `FACE_REG_PAGE: Only ${validDescriptors.length}/${capturedFaceData.length} descriptors are valid`
+        );
+        enqueueSnackbar(
+          `Chỉ có ${validDescriptors.length}/${capturedFaceData.length} ảnh hợp lệ. Tiếp tục với ảnh hợp lệ.`,
+          { variant: "warning" }
+        );
+      }
+
+      console.log(
+        `DEBUG FACE_REG_PAGE: Sending ${validDescriptors.length} valid descriptors`
+      );
+
       const payload = {
         userId: user._id,
-        faceDescriptors: capturedFaceData.map((data) => data.descriptor),
+        faceDescriptors: validDescriptors,
       };
 
       const response = await axios.post(

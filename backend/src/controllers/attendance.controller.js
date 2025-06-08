@@ -416,6 +416,45 @@ exports.getAttendanceLogs = async (req, res) => {
   }
 };
 
+// @desc    Kiểm tra log điểm danh của một sinh viên cụ thể trong session
+// @route   GET /api/attendance/logs/:sessionId/student/:studentId
+// @access  Private
+exports.checkStudentAttendanceLog = async (req, res) => {
+  try {
+    const { sessionId, studentId } = req.params;
+
+    // Tìm log điểm danh của sinh viên trong session này
+    const attendanceLog = await AttendanceLog.findOne({
+      session_id: sessionId,
+      student_id: studentId,
+    }).populate({
+      path: "student_id",
+      select: "full_name school_info email",
+    });
+
+    if (attendanceLog) {
+      return res.status(200).json({
+        success: true,
+        data: attendanceLog,
+        message: "Sinh viên đã có log điểm danh trong session này",
+      });
+    } else {
+      return res.status(200).json({
+        success: true,
+        data: null,
+        message: "Sinh viên chưa có log điểm danh trong session này",
+      });
+    }
+  } catch (error) {
+    console.error("Lỗi khi kiểm tra log điểm danh sinh viên:", error);
+    res.status(500).json({
+      success: false,
+      message: "Lỗi server khi kiểm tra log điểm danh sinh viên",
+      error: error.message,
+    });
+  }
+};
+
 // @desc    Lấy lịch sử điểm danh của sinh viên (bao gồm cả vắng mặt)
 // @route   GET /api/attendance/student/:studentId/logs
 // @access  Private
@@ -1171,6 +1210,19 @@ exports.createAttendanceLog = async (req, res) => {
       session_id: sessionId,
       student_id: student_id,
     });
+
+    // Kiểm tra duplicate nếu đang điểm danh present
+    if (
+      validStatus === "present" &&
+      attendanceLog &&
+      attendanceLog.status === "present"
+    ) {
+      return res.status(409).json({
+        success: false,
+        message: "Sinh viên đã được điểm danh có mặt trong phiên này",
+        data: attendanceLog,
+      });
+    }
 
     let final_absence_request_id;
 

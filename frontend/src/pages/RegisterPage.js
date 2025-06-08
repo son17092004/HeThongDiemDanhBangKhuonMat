@@ -579,6 +579,57 @@ const RegisterPage = () => {
           finalSchoolInfo.department_id = school_info.department_id;
         }
 
+        // Enhanced face features processing with validation
+        let processedFaceFeatures = undefined;
+        if (
+          formData.role === "student" &&
+          enableFaceRegistration &&
+          isFaceRegistrationComplete &&
+          faceData
+        ) {
+          console.log("DEBUG REGISTER: faceData before processing:", faceData);
+
+          const descriptors = faceData.map((item) => item.descriptor);
+          console.log("DEBUG REGISTER: Extracted descriptors:", descriptors);
+
+          // Validate descriptors before sending
+          const validDescriptors = descriptors.filter((desc) => {
+            if (!desc || !Array.isArray(desc) || desc.length !== 128) {
+              console.warn("Invalid descriptor detected:", desc);
+              return false;
+            }
+            const hasValidValues = desc.every(
+              (val) =>
+                val !== null &&
+                val !== undefined &&
+                typeof val === "number" &&
+                !isNaN(val)
+            );
+            if (!hasValidValues) {
+              console.warn("Descriptor contains null/invalid values:", desc);
+              return false;
+            }
+            return true;
+          });
+
+          if (validDescriptors.length > 0) {
+            processedFaceFeatures = { descriptors: validDescriptors };
+            console.log(
+              `DEBUG REGISTER: Sending ${validDescriptors.length}/${descriptors.length} valid descriptors`
+            );
+          } else {
+            console.warn(
+              "No valid descriptors found, not sending face features"
+            );
+            enqueueSnackbar(
+              "Dữ liệu khuôn mặt không hợp lệ, vui lòng chụp lại",
+              { variant: "warning" }
+            );
+            setIsSubmitting(false);
+            return;
+          }
+        }
+
         const finalSubmitData = {
           ...restOfSubmitData,
           school_info: finalSchoolInfo,
@@ -586,13 +637,7 @@ const RegisterPage = () => {
             phone: formData.phone,
             address: formData.address,
           },
-          faceFeatures:
-            formData.role === "student" &&
-            enableFaceRegistration &&
-            isFaceRegistrationComplete &&
-            faceData
-              ? { descriptors: faceData.map((item) => item.descriptor) }
-              : undefined,
+          faceFeatures: processedFaceFeatures,
         };
 
         const response = await axios.post(
@@ -629,7 +674,8 @@ const RegisterPage = () => {
 
   const handleFaceDataCapture = (capturedFaceData) => {
     if (capturedFaceData && capturedFaceData.length >= REQUIRED_IMAGES) {
-      setFaceData(capturedFaceData.map((item) => item.descriptor));
+      // Lưu toàn bộ capturedFaceData, không chỉ descriptors
+      setFaceData(capturedFaceData);
       setIsFaceRegistrationComplete(true);
       enqueueSnackbar("Đã chụp đủ ảnh khuôn mặt!", { variant: "success" });
     } else {

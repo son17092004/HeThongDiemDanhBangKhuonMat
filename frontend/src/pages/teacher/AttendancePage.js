@@ -1072,7 +1072,8 @@ const AttendancePage = () => {
 
     // Thêm Set để theo dõi sinh viên đã điểm danh trong khoảng thời gian gần đây
     const recentlyChecked = new Set();
-    const COOLDOWN_TIME = 10000; // 10 giây cooldown giữa các lần điểm danh cho cùng 1 sinh viên
+    const processingQueue = new Set(); // Thêm queue để track các request đang xử lý
+    const COOLDOWN_TIME = 15000; // Tăng từ 10s lên 15s để an toàn hơn
 
     autoModeIntervalRef.current = setInterval(async () => {
       const result = await detectAndRecognizeFaces(true); // Detect and recognize
@@ -1082,41 +1083,47 @@ const AttendancePage = () => {
         for (const rec of result.recognized) {
           // Check if confidence meets or exceeds the threshold
           if (rec.confidence >= CONFIDENCE_THRESHOLD && rec.studentId) {
-            // Kiểm tra xem sinh viên đã được điểm danh gần đây chưa (trong cooldown của recentlyChecked)
-            if (recentlyChecked.has(rec.studentId)) {
-              // console.log(`[AutoAttend] Student ${rec.studentId} is in recentlyChecked cooldown. Skipping.`);
+            // Kiểm tra xem sinh viên có đang được xử lý không
+            if (processingQueue.has(rec.studentId)) {
               continue;
             }
 
-            // Kiểm tra xem sinh viên đã có log 'present' trong attendanceLogs hay chưa
-            const existingPresentLog = attendanceLogs.find(
-              (log) =>
-                log.student_id?._id === rec.studentId &&
-                log.status === "present"
-            );
-
-            if (existingPresentLog) {
-              // const student = classStudents.find(
-              // (s) => s._id === rec.studentId
-              // );
-              // console.log(`[AutoAttend] Student ${student ? student.full_name : rec.studentId} already marked as present.`);
-              // Không cần thông báo liên tục nếu đã điểm danh, chỉ cần bỏ qua
-              // enqueueSnackbar(
-              //   `${student ? student.full_name : 'Sinh viên này'} đã được điểm danh trước đó.`,
-              //   { variant: "info", autoHideDuration: 2000, preventDuplicate: true }
-              // );
-              // Vẫn thêm vào recentlyChecked để tránh xử lý lại ngay lập tức nếu khuôn mặt vẫn còn đó
-              recentlyChecked.add(rec.studentId);
-              setTimeout(() => {
-                recentlyChecked.delete(rec.studentId);
-              }, COOLDOWN_TIME / 2); // Cooldown ngắn hơn cho trường hợp đã log, chỉ để tránh check DB liên tục
-              continue; // Bỏ qua, không dispatch verifyAttendance
+            // Kiểm tra xem sinh viên đã được điểm danh gần đây chưa
+            if (recentlyChecked.has(rec.studentId)) {
+              continue;
             }
 
-            // Find the corresponding descriptor and detection
-            const detection = result.detections[rec.detectionIndex];
-            if (detection && detection.descriptor) {
-              try {
+            // Kiểm tra database real-time thay vì chỉ dựa vào state
+            try {
+              // Thêm vào processing queue ngay lập tức
+              processingQueue.add(rec.studentId);
+
+              // Kiểm tra database thực tế
+              const checkResponse = await axios.get(
+                `${API_URL}/attendance/logs/${sessionId}/student/${rec.studentId}`,
+                {
+                  headers: { Authorization: `Bearer ${token}` },
+                }
+              );
+
+              // Nếu sinh viên đã có log present, bỏ qua
+              if (checkResponse.data.success && checkResponse.data.data) {
+                const existingLog = checkResponse.data.data;
+                if (existingLog.status === "present") {
+                  // Thêm vào recentlyChecked để tránh check lại
+                  recentlyChecked.add(rec.studentId);
+                  setTimeout(() => {
+                    recentlyChecked.delete(rec.studentId);
+                  }, COOLDOWN_TIME);
+
+                  processingQueue.delete(rec.studentId);
+                  continue;
+                }
+              }
+
+              // Find the corresponding descriptor and detection
+              const detection = result.detections[rec.detectionIndex];
+              if (detection && detection.descriptor) {
                 // Lấy ảnh khuôn mặt từ video
                 const canvas = document.createElement("canvas");
                 const video = webcamRef.current.video;
@@ -1159,15 +1166,26 @@ const AttendancePage = () => {
                   );
                 }
 
-                // Refresh danh sách điểm danh
+                // Refresh danh sách điểm danh và đợi hoàn thành
                 await refreshAttendanceLogs();
-              } catch (error) {
-                // console.error("Lỗi khi điểm danh tự động:", error); // Có thể giữ lại
+              }
+            } catch (error) {
+              // Xử lý lỗi và thông báo
+              if (error.response?.status === 409) {
+                // 409 = conflict (đã điểm danh) - thêm vào recentlyChecked để tránh check lại
+                recentlyChecked.add(rec.studentId);
+                setTimeout(() => {
+                  recentlyChecked.delete(rec.studentId);
+                }, COOLDOWN_TIME);
+              } else {
                 enqueueSnackbar(
                   `Lỗi khi điểm danh: ${error.message || "Không xác định"}`,
                   { variant: "error" }
                 );
               }
+            } finally {
+              // Luôn xóa khỏi processing queue
+              processingQueue.delete(rec.studentId);
             }
           }
         }
@@ -1182,7 +1200,7 @@ const AttendancePage = () => {
     sessionId,
     enqueueSnackbar,
     refreshAttendanceLogs,
-    attendanceLogs, // Thêm attendanceLogs vào dependencies
+    token, // Thêm token vào dependencies
   ]);
 
   const stopAutoAttendance = useCallback(() => {

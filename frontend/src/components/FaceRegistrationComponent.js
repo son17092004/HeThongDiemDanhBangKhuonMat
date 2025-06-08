@@ -56,6 +56,53 @@ const FaceRegistrationComponent = ({
 
   // 1. Load face recognition models on mount
   useEffect(() => {
+    // Add global error handler for unhandled face-api errors
+    const handleGlobalError = (event) => {
+      if (event.error && event.error.message) {
+        const errorMessage = event.error.message;
+
+        if (
+          errorMessage.includes("Box.constructor") ||
+          errorMessage.includes("IBoundingBox") ||
+          errorMessage.includes("IRect")
+        ) {
+          console.warn(
+            "Global face-api bounding box error intercepted:",
+            errorMessage
+          );
+          event.preventDefault(); // Prevent error from bubbling up
+
+          // Clear canvas if possible to reset visual state
+          if (canvasRef.current) {
+            try {
+              const ctx = canvasRef.current.getContext("2d");
+              if (ctx) {
+                ctx.clearRect(
+                  0,
+                  0,
+                  canvasRef.current.width,
+                  canvasRef.current.height
+                );
+              }
+            } catch (canvasError) {
+              console.warn("Could not clear canvas after bounding box error");
+            }
+          }
+
+          // Only show notification once per session to avoid spam
+          if (!window.faceApiErrorShown) {
+            enqueueSnackbar(
+              "Đang điều chỉnh hệ thống nhận diện. Vui lòng thử chụp lại nếu cần.",
+              { variant: "info" }
+            );
+            window.faceApiErrorShown = true;
+          }
+        }
+      }
+    };
+
+    window.addEventListener("error", handleGlobalError);
+
     const initModels = async () => {
       setModelLoadingError(null); // Reset error
       try {
@@ -70,6 +117,11 @@ const FaceRegistrationComponent = ({
       }
     };
     initModels();
+
+    // Cleanup
+    return () => {
+      window.removeEventListener("error", handleGlobalError);
+    };
   }, [enqueueSnackbar]); // Run only once on mount
 
   // 2. Handle camera state changes
@@ -134,8 +186,14 @@ const FaceRegistrationComponent = ({
 
           if (!isMountedRef.current) return;
 
+          // Use more conservative detection options to avoid invalid bounding boxes
+          const detectionOptions = new faceapi.TinyFaceDetectorOptions({
+            inputSize: 416,
+            scoreThreshold: 0.5, // Higher threshold to filter out weak detections
+          });
+
           const detections = await faceapi
-            .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
+            .detectSingleFace(video, detectionOptions)
             .withFaceLandmarks();
 
           if (!isMountedRef.current || !canvasRef.current) return;
@@ -145,24 +203,116 @@ const FaceRegistrationComponent = ({
 
           ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-          if (
-            detections &&
-            detections.detection &&
-            detections.detection.box &&
-            typeof detections.detection.box.x === "number" &&
-            typeof detections.detection.box.y === "number" &&
-            typeof detections.detection.box.width === "number" &&
-            typeof detections.detection.box.height === "number" &&
-            detections.detection.box.width > 0 &&
-            detections.detection.box.height > 0
-          ) {
-            const resizedDetections = faceapi.resizeResults(
-              detections,
-              displaySize
-            );
-            if (!isMountedRef.current || !canvasRef.current) return;
-            faceapi.draw.drawFaceLandmarks(canvas, resizedDetections);
+          // Enhanced bounding box validation to prevent null/undefined errors
+          const isValidDetection = (detection) => {
+            if (
+              !detection ||
+              !detection.detection ||
+              !detection.detection.box
+            ) {
+              return false;
+            }
+
+            const box = detection.detection.box;
+
+            // Enhanced validation - check for all possible invalid values
+            const isValidNumber = (val) => {
+              return (
+                val !== null &&
+                val !== undefined &&
+                !isNaN(val) &&
+                isFinite(val)
+              );
+            };
+
+            if (
+              !isValidNumber(box.x) ||
+              !isValidNumber(box.y) ||
+              !isValidNumber(box.width) ||
+              !isValidNumber(box.height)
+            ) {
+              return false;
+            }
+
+            // Check for positive dimensions
+            if (box.width <= 0 || box.height <= 0) {
+              return false;
+            }
+
+            // Check for reasonable bounds (prevent extremely large or small values)
+            if (
+              box.x < -1000 ||
+              box.x > 10000 ||
+              box.y < -1000 ||
+              box.y > 10000 ||
+              box.width > 10000 ||
+              box.height > 10000
+            ) {
+              return false;
+            }
+
+            return true;
+          };
+
+          if (detections && isValidDetection(detections)) {
+            try {
+              // Enhanced protection for resizeResults - this is where Box.constructor error often occurs
+              let resizedDetections;
+              try {
+                resizedDetections = faceapi.resizeResults(
+                  detections,
+                  displaySize
+                );
+              } catch (resizeError) {
+                // Specifically handle Box.constructor errors from resizeResults
+                if (
+                  resizeError.message &&
+                  resizeError.message.includes("Box.constructor")
+                ) {
+                  console.warn(
+                    "Box.constructor error in resizeResults - skipping this frame"
+                  );
+                  return; // Skip this frame entirely
+                }
+                throw resizeError; // Re-throw if it's a different error
+              }
+
+              if (!isMountedRef.current || !canvasRef.current) return;
+
+              // Double-check the resized detection is still valid
+              if (resizedDetections && isValidDetection(resizedDetections)) {
+                faceapi.draw.drawFaceLandmarks(canvas, resizedDetections);
+              }
+            } catch (landmarkError) {
+              // Silently handle landmark drawing errors to prevent UI crash
+              if (
+                landmarkError.message &&
+                landmarkError.message.includes("Box.constructor")
+              ) {
+                console.warn(
+                  "Box.constructor error in landmark drawing - clearing canvas"
+                );
+              } else {
+                console.warn(
+                  "Landmark drawing error (handled gracefully):",
+                  landmarkError.message
+                );
+              }
+              // Clear canvas on error
+              if (isMountedRef.current && canvasRef.current) {
+                const currentCtx = canvasRef.current.getContext("2d");
+                if (currentCtx) {
+                  currentCtx.clearRect(
+                    0,
+                    0,
+                    canvasRef.current.width,
+                    canvasRef.current.height
+                  );
+                }
+              }
+            }
           } else {
+            // Clear canvas when no valid detection
             if (isMountedRef.current && canvasRef.current) {
               const currentCtx = canvasRef.current.getContext("2d");
               if (currentCtx) {
@@ -176,9 +326,30 @@ const FaceRegistrationComponent = ({
             }
           }
         } catch (error) {
-          // Lỗi được bắt ở đây, không cần log ra console để tránh spam
-          // Nếu lỗi là do unmount, chúng ta muốn nó được bỏ qua một cách thầm lặng
-          // console.warn("Silent error in runFaceDetection:", error); // For debugging if needed
+          // Enhanced error handling for face detection loop
+          if (error.message && error.message.includes("Box.constructor")) {
+            console.warn(
+              "Bounding box error in detection loop - handled gracefully"
+            );
+            // Clear canvas on box errors
+            if (isMountedRef.current && canvasRef.current) {
+              const currentCtx = canvasRef.current.getContext("2d");
+              if (currentCtx) {
+                currentCtx.clearRect(
+                  0,
+                  0,
+                  canvasRef.current.width,
+                  canvasRef.current.height
+                );
+              }
+            }
+          } else {
+            // For other errors, log minimal info for debugging
+            console.warn(
+              "Detection loop error (handled):",
+              error.message || "Unknown error"
+            );
+          }
         }
       }
     };
@@ -272,18 +443,48 @@ const FaceRegistrationComponent = ({
         throw new Error("Không thể chụp ảnh từ webcam.");
       }
 
-      // Perform face detection với quality validation
-      const detections = await detectFace(imageSrc);
-
-      if (!detections || !detections.descriptor) {
+      // Perform face detection với quality validation and error handling
+      let detections;
+      try {
+        detections = await detectFace(imageSrc);
+      } catch (faceDetectionError) {
         console.warn(
-          "[FaceComponent] Face detection failed or no descriptor found."
+          "[FaceComponent] Face detection error:",
+          faceDetectionError.message
+        );
+        enqueueSnackbar("Lỗi khi phân tích khuôn mặt. Vui lòng thử lại.", {
+          variant: "warning",
+        });
+        setIsProcessing(false);
+        return;
+      }
+
+      if (!detections || !detections.descriptor || !detections.detection) {
+        console.warn(
+          "[FaceComponent] Face detection failed or incomplete data."
         );
         enqueueSnackbar(
           "Không phát hiện được khuôn mặt rõ ràng. Hãy thử lại.",
           { variant: "warning" }
         );
         setIsProcessing(false); // Allow retry
+        return;
+      }
+
+      // Additional bounding box validation for captured image
+      const box = detections.detection.box;
+      if (
+        !box ||
+        box.x === null ||
+        box.y === null ||
+        box.width === null ||
+        box.height === null
+      ) {
+        console.warn("[FaceComponent] Invalid bounding box in detection:", box);
+        enqueueSnackbar("Dữ liệu khuôn mặt không hợp lệ. Vui lòng thử lại.", {
+          variant: "warning",
+        });
+        setIsProcessing(false);
         return;
       }
 
@@ -561,49 +762,73 @@ const FaceRegistrationComponent = ({
       </Box>
     );
 
-  // --- Main Component Render ---
-  return (
-    <Box>
-      {/* Show general loading/error before camera */}
-      {!modelsLoaded && !modelLoadingError && (
-        <Box
-          sx={{
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            p: 2,
-          }}
-        >
-          <CircularProgress size={20} sx={{ mr: 1 }} />
-          <Typography>Đang tải mô hình nhận diện...</Typography>
-        </Box>
-      )}
-      {modelLoadingError && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {modelLoadingError}
-        </Alert>
-      )}
+  // --- Main Component Render with Error Boundary ---
+  try {
+    return (
+      <Box>
+        {/* Show general loading/error before camera */}
+        {!modelsLoaded && !modelLoadingError && (
+          <Box
+            sx={{
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
+              p: 2,
+            }}
+          >
+            <CircularProgress size={20} sx={{ mr: 1 }} />
+            <Typography>Đang tải mô hình nhận diện...</Typography>
+          </Box>
+        )}
+        {modelLoadingError && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {modelLoadingError}
+          </Alert>
+        )}
 
-      {/* Render Camera and Controls once models attempt to load */}
-      {modelsLoaded && !modelLoadingError && (
-        <>
-          {renderCameraView()}
-          {renderCaptureControls()}
-          {renderImagePreviews()}
-        </>
-      )}
-      {/* Optional: Add a success message when all images are captured */}
-      {capturedImages.length >= requiredImages && (
-        <Alert
-          severity="success"
-          icon={<CheckCircleOutline fontSize="inherit" />}
-          sx={{ mt: 2 }}
-        >
-          Đã chụp đủ {requiredImages} ảnh. Bạn có thể tiếp tục.
+        {/* Render Camera and Controls once models attempt to load */}
+        {modelsLoaded && !modelLoadingError && (
+          <>
+            {renderCameraView()}
+            {renderCaptureControls()}
+            {renderImagePreviews()}
+          </>
+        )}
+        {/* Optional: Add a success message when all images are captured */}
+        {capturedImages.length >= requiredImages && (
+          <Alert
+            severity="success"
+            icon={<CheckCircleOutline fontSize="inherit" />}
+            sx={{ mt: 2 }}
+          >
+            Đã chụp đủ {requiredImages} ảnh. Bạn có thể tiếp tục.
+          </Alert>
+        )}
+      </Box>
+    );
+  } catch (renderError) {
+    console.error("Face Registration Component render error:", renderError);
+    return (
+      <Box sx={{ p: 2 }}>
+        <Alert severity="error">
+          <Typography variant="h6" gutterBottom>
+            Lỗi hệ thống đăng ký khuôn mặt
+          </Typography>
+          <Typography variant="body2">
+            Đã xảy ra lỗi không mong muốn. Vui lòng tải lại trang hoặc thử lại
+            sau.
+          </Typography>
+          <Button
+            variant="outlined"
+            onClick={() => window.location.reload()}
+            sx={{ mt: 1 }}
+          >
+            Tải lại trang
+          </Button>
         </Alert>
-      )}
-    </Box>
-  );
+      </Box>
+    );
+  }
 };
 
 export default FaceRegistrationComponent;

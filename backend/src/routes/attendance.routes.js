@@ -55,6 +55,14 @@ router.get(
 // @desc    Lấy danh sách logs điểm danh trong một phiên
 router.get("/logs/:sessionId", protect, attendanceController.getAttendanceLogs);
 
+// @route   GET /api/attendance/logs/:sessionId/student/:studentId
+// @desc    Kiểm tra log điểm danh của một sinh viên cụ thể trong session
+router.get(
+  "/logs/:sessionId/student/:studentId",
+  protect,
+  attendanceController.checkStudentAttendanceLog
+);
+
 // @route   GET /api/attendance/student/:studentId/logs
 // @desc    Lấy lịch sử điểm danh của sinh viên
 router.get(

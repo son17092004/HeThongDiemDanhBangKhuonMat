@@ -23,6 +23,63 @@ exports.saveFaceFeatures = async (req, res) => {
       });
     }
 
+    // Enhanced validation for face descriptors
+    console.log(
+      "DEBUG SAVE_FEATURES: Received faceDescriptors:",
+      faceDescriptors.length
+    );
+    console.log(
+      "DEBUG SAVE_FEATURES: First descriptor sample:",
+      faceDescriptors[0]
+    );
+
+    // Validate each descriptor
+    const validatedDescriptors = faceDescriptors.filter((descriptor) => {
+      // Kiểm tra descriptor không null, undefined, và có đúng độ dài 128
+      if (
+        !descriptor ||
+        !Array.isArray(descriptor) ||
+        descriptor.length !== 128
+      ) {
+        console.warn(
+          "SAVE_FEATURES: Invalid descriptor detected (wrong length or null):",
+          descriptor
+        );
+        return false;
+      }
+
+      // Kiểm tra tất cả values không phải null và là số
+      const hasValidValues = descriptor.every(
+        (val) =>
+          val !== null &&
+          val !== undefined &&
+          typeof val === "number" &&
+          !isNaN(val)
+      );
+      if (!hasValidValues) {
+        console.warn(
+          "SAVE_FEATURES: Descriptor contains null/invalid values:",
+          descriptor
+        );
+        return false;
+      }
+
+      return true;
+    });
+
+    if (validatedDescriptors.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Không có dữ liệu khuôn mặt hợp lệ. Vui lòng thử lại.",
+      });
+    }
+
+    if (validatedDescriptors.length < faceDescriptors.length) {
+      console.warn(
+        `SAVE_FEATURES: Only ${validatedDescriptors.length}/${faceDescriptors.length} descriptors are valid`
+      );
+    }
+
     // Tìm người dùng
     const user = await User.findById(userId);
 
@@ -33,11 +90,15 @@ exports.saveFaceFeatures = async (req, res) => {
       });
     }
 
-    // Cập nhật đặc trưng khuôn mặt
+    // Cập nhật đặc trưng khuôn mặt với validated descriptors
     user.faceFeatures = {
-      descriptors: faceDescriptors,
+      descriptors: validatedDescriptors,
       lastUpdated: Date.now(),
     };
+
+    console.log(
+      `SAVE_FEATURES: Saved ${validatedDescriptors.length} valid descriptors for user ${user.full_name}`
+    );
 
     await user.save();
 
@@ -144,10 +205,20 @@ exports.verifyAttendance = async (req, res) => {
     let cloudinaryImageUrl = null;
     let cloudinaryImagePublicId = null;
 
+    // Kiểm tra xem sinh viên đã có log present trong session này chưa
     let attendanceLog = await AttendanceLog.findOne({
       session_id: sessionId,
       student_id: studentId,
     });
+
+    if (attendanceLog && attendanceLog.status === "present") {
+      // Sinh viên đã được điểm danh present rồi
+      return res.status(409).json({
+        success: false,
+        message: "Sinh viên đã được điểm danh có mặt trong phiên này",
+        data: attendanceLog,
+      });
+    }
 
     if (imageBase64) {
       if (

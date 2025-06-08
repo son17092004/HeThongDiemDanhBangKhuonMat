@@ -607,10 +607,50 @@ const CompleteRegistrationPage = () => {
           phone: formData.phone,
           address: formData.address,
         },
-        faceFeatures:
-          enableFaceRegistration && faceData
-            ? { descriptors: faceData.map((item) => item.descriptor) }
-            : undefined,
+        faceFeatures: (() => {
+          if (enableFaceRegistration && faceData) {
+            console.log(
+              "DEBUG COMPLETE: faceData before processing:",
+              faceData
+            );
+
+            const descriptors = faceData.map((item) => item.descriptor);
+            console.log("DEBUG COMPLETE: Extracted descriptors:", descriptors);
+
+            // Validate descriptors before sending
+            const validDescriptors = descriptors.filter((desc) => {
+              if (!desc || !Array.isArray(desc) || desc.length !== 128) {
+                console.warn("Invalid descriptor detected:", desc);
+                return false;
+              }
+              const hasValidValues = desc.every(
+                (val) =>
+                  val !== null &&
+                  val !== undefined &&
+                  typeof val === "number" &&
+                  !isNaN(val)
+              );
+              if (!hasValidValues) {
+                console.warn("Descriptor contains null/invalid values:", desc);
+                return false;
+              }
+              return true;
+            });
+
+            if (validDescriptors.length > 0) {
+              console.log(
+                `DEBUG COMPLETE: Sending ${validDescriptors.length}/${descriptors.length} valid descriptors`
+              );
+              return { descriptors: validDescriptors };
+            } else {
+              console.warn(
+                "No valid descriptors found in CompleteRegistration"
+              );
+              return undefined;
+            }
+          }
+          return undefined;
+        })(),
         school_info: {},
       };
 

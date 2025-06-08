@@ -187,7 +187,7 @@ exports.register = async (req, res) => {
       }
     }
 
-    // Thêm faceFeatures nếu có
+    // Thêm faceFeatures nếu có với validation mạnh hơn
     if (
       faceFeatures &&
       faceFeatures.descriptors &&
@@ -201,6 +201,10 @@ exports.register = async (req, res) => {
       console.log(
         "DEBUG REGISTER: faceFeatures.descriptors length:",
         faceFeatures.descriptors.length
+      );
+      console.log(
+        "DEBUG REGISTER: First descriptor sample:",
+        faceFeatures.descriptors[0]
       );
 
       // Đảm bảo descriptors là array, không phải string
@@ -220,13 +224,53 @@ exports.register = async (req, res) => {
         }
       }
 
-      userData.faceFeatures = {
-        descriptors: processedDescriptors,
-        lastUpdated: new Date(),
-      };
-      console.log(
-        `Đăng ký thủ công: Đã nhận ${processedDescriptors.length} dữ liệu khuôn mặt.`
-      );
+      // Enhanced validation: Kiểm tra từng descriptor
+      const validatedDescriptors = processedDescriptors.filter((descriptor) => {
+        // Kiểm tra descriptor không null, undefined, và có đúng độ dài 128
+        if (
+          !descriptor ||
+          !Array.isArray(descriptor) ||
+          descriptor.length !== 128
+        ) {
+          console.warn(
+            "REGISTER: Invalid descriptor detected (wrong length or null):",
+            descriptor
+          );
+          return false;
+        }
+
+        // Kiểm tra tất cả values không phải null và là số
+        const hasValidValues = descriptor.every(
+          (val) =>
+            val !== null &&
+            val !== undefined &&
+            typeof val === "number" &&
+            !isNaN(val)
+        );
+        if (!hasValidValues) {
+          console.warn(
+            "REGISTER: Descriptor contains null/invalid values:",
+            descriptor
+          );
+          return false;
+        }
+
+        return true;
+      });
+
+      if (validatedDescriptors.length > 0) {
+        userData.faceFeatures = {
+          descriptors: validatedDescriptors,
+          lastUpdated: new Date(),
+        };
+        console.log(
+          `Đăng ký thủ công: Đã nhận ${validatedDescriptors.length}/${processedDescriptors.length} dữ liệu khuôn mặt hợp lệ.`
+        );
+      } else {
+        console.warn(
+          "REGISTER: No valid face descriptors found, skipping face features"
+        );
+      }
     }
 
     // --- Xây dựng school_info có chọn lọc ---

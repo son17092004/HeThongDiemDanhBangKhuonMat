@@ -77,7 +77,7 @@ export const detectFace = async (imageData) => {
       return null;
     }
 
-    // Kiểm tra tính hợp lệ của box
+    // Kiểm tra tính hợp lệ của box với validation mạnh hơn
     const box = detections.detection.box;
     if (!box || !isValidBox(box)) {
       console.warn("Phát hiện khuôn mặt với box không hợp lệ:", box);
@@ -93,15 +93,37 @@ export const detectFace = async (imageData) => {
     // Kiểm tra tính hợp lệ của descriptor
     if (
       !detections.descriptor ||
-      !(detections.descriptor instanceof Float32Array)
+      !(detections.descriptor instanceof Float32Array) ||
+      detections.descriptor.length === 0
     ) {
       console.warn("Không có descriptor hợp lệ");
+      return null;
+    }
+
+    // Validate descriptor values are not all zeros or NaN
+    const hasValidValues = Array.from(detections.descriptor).some(
+      (val) => !isNaN(val) && val !== 0
+    );
+
+    if (!hasValidValues) {
+      console.warn("Descriptor chứa toàn giá trị không hợp lệ");
       return null;
     }
 
     return detections;
   } catch (error) {
     console.error("Error detecting face:", error);
+
+    // Enhanced error handling - don't throw, return null gracefully
+    if (error.message && error.message.includes("Box.constructor")) {
+      console.warn(
+        "Bounding box constructor error - returning null gracefully"
+      );
+      return null;
+    }
+
+    // For other errors, still return null but log more details
+    console.warn("Face detection failed with error:", error.message);
     return null;
   }
 };
