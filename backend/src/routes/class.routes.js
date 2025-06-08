@@ -18,6 +18,40 @@ router.get(
   classController.getMainClassStatistics
 );
 
+// Lấy thống kê chi tiết của lớp chính
+router.get(
+  "/main/:id/detailed-statistics",
+  protect,
+  authorize(["admin", "teacher"]),
+  classController.getMainClassDetailedStatistics
+);
+
+// Export danh sách sinh viên lớp chính
+router.get(
+  "/main/:id/export-students",
+  protect,
+  authorize(["admin", "teacher"]),
+  classController.exportMainClassStudents
+);
+
+// Lấy chi tiết điểm danh của sinh viên
+router.get(
+  "/teaching/:id/students/:studentId/attendance-detail",
+  protect,
+  authorize(["admin", "teacher"]),
+  classController.getStudentAttendanceDetail
+);
+
+// Cập nhật điểm danh sinh viên
+router.put(
+  "/teaching/:id/sessions/:sessionId/attendance/:studentId",
+  protect,
+  authorize(["admin", "teacher"]),
+  classController.updateStudentAttendance
+);
+
+// API đã được tích hợp vào getStudentAttendanceDetail - không cần API riêng
+
 // Lấy lớp chính theo ID
 router.get("/main/:id", protect, classController.getMainClassById);
 

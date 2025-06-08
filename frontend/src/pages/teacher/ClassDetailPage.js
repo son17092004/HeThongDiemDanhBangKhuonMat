@@ -70,7 +70,9 @@ import {
   ZoomIn,
   ZoomOut,
   RestartAlt,
+  Visibility,
 } from "@mui/icons-material";
+import StudentAttendanceDetail from "../../components/StudentAttendanceDetail";
 import {
   getTeachingClassById,
   updateTeachingClass,
@@ -171,6 +173,11 @@ const TeacherClassDetailPage = () => {
   const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
   const [subjects, setSubjects] = useState([]);
   const [semesters, setSemesters] = useState([]);
+
+  // State cho chi tiết điểm danh sinh viên
+  const [openAttendanceDetail, setOpenAttendanceDetail] = useState(false);
+  const [selectedStudentForAttendance, setSelectedStudentForAttendance] =
+    useState(null);
 
   // Thêm state để lưu danh sách phòng học
   const [rooms, setRooms] = useState([]);
@@ -1949,6 +1956,17 @@ const TeacherClassDetailPage = () => {
     setTeacherEvidenceImageUrl("");
   };
 
+  // Hàm xử lý xem chi tiết điểm danh sinh viên
+  const handleViewStudentAttendance = (student) => {
+    setSelectedStudentForAttendance(student);
+    setOpenAttendanceDetail(true);
+  };
+
+  const handleCloseAttendanceDetail = () => {
+    setOpenAttendanceDetail(false);
+    setSelectedStudentForAttendance(null);
+  };
+
   return (
     <Box sx={{ p: 3, bgcolor: "grey.50", minHeight: "100vh" }}>
       {isLoading ? (
@@ -2581,13 +2599,29 @@ const TeacherClassDetailPage = () => {
                               )}
                             </TableCell>
                             <TableCell align="right">
-                              <IconButton
-                                color="error"
-                                onClick={() => handleRemoveStudent(student._id)}
-                                size="small"
-                              >
-                                <Delete fontSize="small" />
-                              </IconButton>
+                              <Tooltip title="Xem chi tiết điểm danh">
+                                <IconButton
+                                  color="primary"
+                                  onClick={() =>
+                                    handleViewStudentAttendance(student)
+                                  }
+                                  size="small"
+                                  sx={{ mr: 1 }}
+                                >
+                                  <Visibility fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                              <Tooltip title="Xóa khỏi lớp">
+                                <IconButton
+                                  color="error"
+                                  onClick={() =>
+                                    handleRemoveStudent(student._id)
+                                  }
+                                  size="small"
+                                >
+                                  <Delete fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
                             </TableCell>
                           </TableRow>
                         ))}
@@ -4084,6 +4118,15 @@ const TeacherClassDetailPage = () => {
               </Box>
             </DialogContent>
           </Dialog>
+
+          {/* Dialog chi tiết điểm danh sinh viên */}
+          <StudentAttendanceDetail
+            open={openAttendanceDetail}
+            onClose={handleCloseAttendanceDetail}
+            studentId={selectedStudentForAttendance?._id}
+            classId={classId}
+            studentName={selectedStudentForAttendance?.full_name}
+          />
         </>
       )}
     </Box>

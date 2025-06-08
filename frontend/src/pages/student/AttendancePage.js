@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useSelector } from "react-redux";
 import { useSnackbar } from "notistack";
+import axios from "axios";
 import {
   Box,
   Typography,
@@ -142,57 +143,20 @@ const StudentAttendancePage = () => {
       setAttendanceLogs(logs);
       setAttendanceStats(stats);
 
-      // Lấy điểm chuyên cần
-      const scoresResponse = await studentService.getAttendanceScores(
-        user._id,
-        token
-      );
+      // Tính điểm chuyên cần đơn giản dựa trên số buổi vắng
+      const absentCount = stats.absent || 0;
+      const attendanceScore = Math.max(0, 10 - absentCount * 2);
+      const maxAbsentAllowed = classResponse.data?.max_absent_allowed || 3;
+      const isFailedDueToAbsent = absentCount > maxAbsentAllowed;
 
-      if (scoresResponse.success) {
-        // Tìm điểm của lớp hiện tại
-        const classScore = scoresResponse.data.find(
-          (score) =>
-            score.teaching_class_id?._id === classId ||
-            score.teaching_class_id === classId
-        );
-
-        if (classScore) {
-          const maxAbsentAllowed =
-            classScore.max_absent_allowed ||
-            classResponse.data?.max_absent_allowed ||
-            3;
-          const isEligible = studentService.checkExamEligibility(
-            classScore.absent_sessions,
-            maxAbsentAllowed
-          );
-
-          setAttendanceScore({
-            score: classScore.attendance_score,
-            maxScore: 10,
-            passed: !classScore.is_failed_due_to_absent && isEligible,
-            message: isEligible
-              ? "Đủ điều kiện dự thi"
-              : `Cảnh báo: Vắng quá ${maxAbsentAllowed} buổi, có thể bị cấm thi`,
-          });
-        } else {
-          // Tính toán điểm dựa trên số buổi vắng nếu không có trong db
-          const score = studentService.calculateAttendanceScore(stats.absent);
-          const maxAbsentAllowed = classResponse.data?.max_absent_allowed || 3;
-          const isEligible = studentService.checkExamEligibility(
-            stats.absent,
-            maxAbsentAllowed
-          );
-
-          setAttendanceScore({
-            score,
-            maxScore: 10,
-            passed: isEligible,
-            message: isEligible
-              ? "Đủ điều kiện dự thi"
-              : `Cảnh báo: Vắng quá ${maxAbsentAllowed} buổi, có thể bị cấm thi`,
-          });
-        }
-      }
+      setAttendanceScore({
+        score: attendanceScore,
+        maxScore: 10,
+        passed: !isFailedDueToAbsent,
+        message: isFailedDueToAbsent
+          ? "Hỏng môn do vắng quá nhiều"
+          : "Đạt yêu cầu",
+      });
     } catch (error) {
       console.error("Lỗi khi tải dữ liệu:", error);
       enqueueSnackbar("Lỗi khi tải dữ liệu điểm danh", { variant: "error" });

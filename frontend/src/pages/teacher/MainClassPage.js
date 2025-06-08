@@ -78,11 +78,15 @@ import {
   Group,
   Business,
   HelpOutline,
+  Assessment,
+  FileDownload,
+  TableChart,
 } from "@mui/icons-material";
 import InfoIcon from "@mui/icons-material/Info";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import CheckIcon from "@mui/icons-material/Check";
 import NoDataSvg from "../../components/NoDataSvg";
+import MainClassStatistics from "../../components/MainClassStatistics";
 
 const API_URL = process.env.REACT_APP_API_URL;
 
@@ -176,6 +180,13 @@ const TeacherMainClassPage = () => {
     fetchMainClasses();
     fetchDepartments();
   }, [token]);
+
+  // Effect để tự động tìm kiếm khi searchTerm hoặc pagination thay đổi
+  useEffect(() => {
+    if (mainClass) {
+      fetchApprovedStudents(mainClass._id);
+    }
+  }, [approvedSearchTerm, page, rowsPerPage, mainClass?._id]);
 
   // Lấy danh sách các lớp chính mà giảng viên được phân công làm cố vấn
   const fetchMainClasses = async () => {
@@ -647,6 +658,93 @@ const TeacherMainClassPage = () => {
     }
   };
 
+  // Xuất danh sách sinh viên ra Excel
+  const handleExportStudents = async (type) => {
+    try {
+      const response = await axios.get(
+        `${API_URL}/classes/main/${mainClass._id}/export-students?type=${type}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+
+      if (response.data.success) {
+        // Tạo file Excel từ dữ liệu
+        const { headerInfo, students, filename } = response.data.data;
+
+        // Sử dụng thư viện XLSX để tạo file Excel
+        const XLSX = require("xlsx");
+        const wb = XLSX.utils.book_new();
+
+        // Tạo sheet với thông tin header
+        const headerData = Object.entries(headerInfo).map(([key, value]) => [
+          key,
+          value,
+        ]);
+        const wsHeader = XLSX.utils.aoa_to_sheet([
+          ["THÔNG TIN LỚP HỌC"],
+          [],
+          ...headerData,
+          [],
+          ["DANH SÁCH SINH VIÊN"],
+          [],
+        ]);
+
+        // Tạo sheet với dữ liệu sinh viên
+        const wsData = XLSX.utils.json_to_sheet(students);
+
+        // Thêm sheets vào workbook
+        XLSX.utils.book_append_sheet(wb, wsHeader, "Thông tin");
+        XLSX.utils.book_append_sheet(wb, wsData, "Danh sách sinh viên");
+
+        // Tải file
+        XLSX.writeFile(wb, filename);
+
+        // enqueueSnackbar("Xuất file Excel thành công!", { variant: "success" });
+      }
+    } catch (error) {
+      console.error("Lỗi khi xuất file Excel:", error);
+      // enqueueSnackbar("Lỗi khi xuất file Excel", { variant: "error" });
+
+      // Fallback: tạo CSV đơn giản
+      try {
+        const response = await axios.get(
+          `${API_URL}/classes/main/${mainClass._id}/export-students?type=${type}`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        );
+
+        if (response.data.success) {
+          const { students } = response.data.data;
+          const csvContent = [
+            Object.keys(students[0]).join(","),
+            ...students.map((student) => Object.values(student).join(",")),
+          ].join("\n");
+
+          const blob = new Blob([csvContent], {
+            type: "text/csv;charset=utf-8;",
+          });
+          const link = document.createElement("a");
+          if (link.download !== undefined) {
+            const url = URL.createObjectURL(blob);
+            link.setAttribute("href", url);
+            link.setAttribute(
+              "download",
+              `DanhSachSinhVien_${type}_${Date.now()}.csv`
+            );
+            link.style.visibility = "hidden";
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+          }
+        }
+      } catch (csvError) {
+        console.error("Lỗi khi tạo CSV:", csvError);
+      }
+    }
+  };
+
   // Render khi có lỗi
   const renderErrorStateJSX = () => (
     <Box sx={{ p: 3, mt: 2 /* Thêm khoảng cách từ header */ }}>
@@ -684,6 +782,15 @@ const TeacherMainClassPage = () => {
       student.email?.toLowerCase().includes(pendingSearchTerm.toLowerCase()) ||
       student.school_info?.student_id
         ?.toLowerCase()
+        .includes(pendingSearchTerm.toLowerCase()) ||
+      student.school_info?.class_id?.name
+        ?.toLowerCase()
+        .includes(pendingSearchTerm.toLowerCase()) ||
+      student.school_info?.class_id?.major_id?.name
+        ?.toLowerCase()
+        .includes(pendingSearchTerm.toLowerCase()) ||
+      student.contact?.phone
+        ?.toLowerCase()
         .includes(pendingSearchTerm.toLowerCase())
   );
 
@@ -694,6 +801,15 @@ const TeacherMainClassPage = () => {
         .includes(approvedSearchTerm.toLowerCase()) ||
       student.email?.toLowerCase().includes(approvedSearchTerm.toLowerCase()) ||
       student.school_info?.student_id
+        ?.toLowerCase()
+        .includes(approvedSearchTerm.toLowerCase()) ||
+      student.school_info?.class_id?.name
+        ?.toLowerCase()
+        .includes(approvedSearchTerm.toLowerCase()) ||
+      student.school_info?.class_id?.major_id?.name
+        ?.toLowerCase()
+        .includes(approvedSearchTerm.toLowerCase()) ||
+      student.contact?.phone
         ?.toLowerCase()
         .includes(approvedSearchTerm.toLowerCase())
   );
@@ -1755,6 +1871,14 @@ const TeacherMainClassPage = () => {
                     </Box>
                   }
                 />
+                <Tab
+                  label={
+                    <Box sx={{ display: "flex", alignItems: "center" }}>
+                      <Assessment sx={{ mr: 1 }} />
+                      Thống kê chi tiết
+                    </Box>
+                  }
+                />
               </Tabs>
 
               <TabPanel value={tabValue} index={0}>
@@ -1772,17 +1896,26 @@ const TeacherMainClassPage = () => {
                   <Box sx={{ display: "flex", gap: 2 }}>
                     <TextField
                       size="small"
-                      label="Tìm kiếm sinh viên"
+                      label="Tìm kiếm sinh viên (tên, email, MSSV, lớp, ngành, SĐT)"
                       variant="outlined"
                       value={pendingSearchTerm}
                       onChange={(e) => setPendingSearchTerm(e.target.value)}
                       InputProps={{
                         endAdornment: (
                           <InputAdornment position="end">
+                            {pendingSearchTerm && (
+                              <IconButton
+                                size="small"
+                                onClick={() => setPendingSearchTerm("")}
+                              >
+                                <ClearIcon fontSize="small" />
+                              </IconButton>
+                            )}
                             <SearchIcon />
                           </InputAdornment>
                         ),
                       }}
+                      sx={{ minWidth: 350 }}
                     />
                     <Button
                       variant="outlined"
@@ -1793,6 +1926,15 @@ const TeacherMainClassPage = () => {
                       disabled={isLoadingPending}
                     >
                       Làm mới
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      color="success"
+                      startIcon={<FileDownload />}
+                      onClick={() => handleExportStudents("pending")}
+                      disabled={filteredPendingStudents.length === 0}
+                    >
+                      Xuất Excel
                     </Button>
                   </Box>
                 </Box>
@@ -2028,7 +2170,7 @@ const TeacherMainClassPage = () => {
                   <Box sx={{ display: "flex", gap: 2 }}>
                     <TextField
                       size="small"
-                      label="Tìm kiếm sinh viên"
+                      label="Tìm kiếm sinh viên (tên, email, MSSV, lớp, ngành, SĐT)"
                       variant="outlined"
                       value={approvedSearchTerm}
                       onChange={(e) => {
@@ -2038,10 +2180,22 @@ const TeacherMainClassPage = () => {
                       InputProps={{
                         endAdornment: (
                           <InputAdornment position="end">
+                            {approvedSearchTerm && (
+                              <IconButton
+                                size="small"
+                                onClick={() => {
+                                  setApprovedSearchTerm("");
+                                  setPage(0);
+                                }}
+                              >
+                                <ClearIcon fontSize="small" />
+                              </IconButton>
+                            )}
                             <SearchIcon />
                           </InputAdornment>
                         ),
                       }}
+                      sx={{ minWidth: 350 }}
                     />
                     <Button
                       variant="outlined"
@@ -2055,6 +2209,15 @@ const TeacherMainClassPage = () => {
                     >
                       Làm mới
                     </Button>
+                    <Button
+                      variant="outlined"
+                      color="success"
+                      startIcon={<TableChart />}
+                      onClick={() => handleExportStudents("approved")}
+                      disabled={approvedStudents.length === 0}
+                    >
+                      Xuất Excel
+                    </Button>
                   </Box>
                 </Box>
 
@@ -2064,7 +2227,7 @@ const TeacherMainClassPage = () => {
                   >
                     <CircularProgress />
                   </Box>
-                ) : filteredApprovedStudents.length > 0 ? (
+                ) : approvedStudents.length > 0 ? (
                   <>
                     <TableContainer
                       component={Paper}
@@ -2081,34 +2244,36 @@ const TeacherMainClassPage = () => {
                       }}
                     >
                       <Table
-                        sx={{ minWidth: 1000 }}
+                        sx={{ minWidth: 1400 }}
                         aria-label="approved students table"
                       >
                         {" "}
-                        {/* Tăng minWidth */}
+                        {/* Tăng minWidth để chứa nhiều cột hơn */}
                         <TableHead>
                           <TableRow sx={{ bgcolor: "primary.lighter" }}>
                             <TableCell sx={{ fontWeight: "bold", width: "5%" }}>
                               STT
-                            </TableCell>{" "}
-                            {/* Thêm STT */}
+                            </TableCell>
                             <TableCell sx={{ fontWeight: "bold" }}>
                               Họ và tên
                             </TableCell>
-                            <TableCell>Email</TableCell>
                             <TableCell>MSSV</TableCell>
-                            <TableCell>Lớp</TableCell>
+                            <TableCell>Email</TableCell>
+                            <TableCell>Lớp đăng ký</TableCell>
+                            <TableCell>Ngành</TableCell>
+                            <TableCell>Khoa</TableCell>
+                            <TableCell>Số điện thoại</TableCell>
+                            <TableCell>Địa chỉ</TableCell>
                             <TableCell>Khuôn mặt</TableCell>
                             <TableCell align="center">Hành động</TableCell>
                           </TableRow>
                         </TableHead>
                         <TableBody>
-                          {filteredApprovedStudents.map((student, index) => (
+                          {approvedStudents.map((student, index) => (
                             <TableRow key={student._id} hover>
                               <TableCell>
                                 {page * rowsPerPage + index + 1}
-                              </TableCell>{" "}
-                              {/* STT */}
+                              </TableCell>
                               <TableCell>
                                 <Box
                                   sx={{ display: "flex", alignItems: "center" }}
@@ -2125,11 +2290,131 @@ const TeacherMainClassPage = () => {
                                 </Box>
                               </TableCell>
                               <TableCell>
-                                {student.school_info?.student_id || "N/A"}
+                                {student.school_info?.student_id || (
+                                  <Typography
+                                    variant="body2"
+                                    color="text.secondary"
+                                    fontStyle="italic"
+                                  >
+                                    Chưa cập nhật
+                                  </Typography>
+                                )}
                               </TableCell>
                               <TableCell>{student.email}</TableCell>
                               <TableCell>
-                                {student.school_info?.class || (
+                                {student.school_info?.class_id?.name ? (
+                                  <Box>
+                                    <Typography variant="body2">
+                                      {student.school_info.class_id.name}
+                                    </Typography>
+                                    <Typography
+                                      variant="caption"
+                                      color="text.secondary"
+                                    >
+                                      ({student.school_info.class_id.class_code}
+                                      )
+                                    </Typography>
+                                  </Box>
+                                ) : (
+                                  <Typography
+                                    variant="body2"
+                                    color="text.secondary"
+                                    fontStyle="italic"
+                                  >
+                                    Chưa cập nhật
+                                  </Typography>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                {student.school_info?.class_id?.major_id
+                                  ?.name ? (
+                                  <Box>
+                                    <Typography variant="body2">
+                                      {
+                                        student.school_info.class_id.major_id
+                                          .name
+                                      }
+                                    </Typography>
+                                    <Typography
+                                      variant="caption"
+                                      color="text.secondary"
+                                    >
+                                      (
+                                      {
+                                        student.school_info.class_id.major_id
+                                          .code
+                                      }
+                                      )
+                                    </Typography>
+                                  </Box>
+                                ) : (
+                                  <Typography
+                                    variant="body2"
+                                    color="text.secondary"
+                                    fontStyle="italic"
+                                  >
+                                    N/A
+                                  </Typography>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                {student.school_info?.class_id?.major_id
+                                  ?.department_id?.name ? (
+                                  <Box>
+                                    <Typography variant="body2">
+                                      {
+                                        student.school_info.class_id.major_id
+                                          .department_id.name
+                                      }
+                                    </Typography>
+                                    <Typography
+                                      variant="caption"
+                                      color="text.secondary"
+                                    >
+                                      (
+                                      {
+                                        student.school_info.class_id.major_id
+                                          .department_id.code
+                                      }
+                                      )
+                                    </Typography>
+                                  </Box>
+                                ) : (
+                                  <Typography
+                                    variant="body2"
+                                    color="text.secondary"
+                                    fontStyle="italic"
+                                  >
+                                    N/A
+                                  </Typography>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                {student.contact?.phone || (
+                                  <Typography
+                                    variant="body2"
+                                    color="text.secondary"
+                                    fontStyle="italic"
+                                  >
+                                    Chưa cập nhật
+                                  </Typography>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                {student.contact?.address ? (
+                                  <Typography
+                                    variant="body2"
+                                    sx={{
+                                      maxWidth: 150,
+                                      overflow: "hidden",
+                                      textOverflow: "ellipsis",
+                                      whiteSpace: "nowrap",
+                                    }}
+                                    title={student.contact.address}
+                                  >
+                                    {student.contact.address}
+                                  </Typography>
+                                ) : (
                                   <Typography
                                     variant="body2"
                                     color="text.secondary"
@@ -2216,6 +2501,13 @@ const TeacherMainClassPage = () => {
                     </Typography>
                   </Paper>
                 )}
+              </TabPanel>
+
+              <TabPanel value={tabValue} index={2}>
+                <MainClassStatistics
+                  classId={mainClass._id}
+                  className={mainClass.name}
+                />
               </TabPanel>
             </Paper>
           </>
