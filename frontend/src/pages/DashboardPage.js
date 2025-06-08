@@ -303,6 +303,18 @@ const DashboardPage = () => {
   const studentInfo = useMemo(() => {
     if (user.role !== "student") return null;
 
+    // DEBUG: Log để kiểm tra cấu trúc faceFeatures
+    console.log("DEBUG: Full user object:", user);
+    console.log("DEBUG: user.faceFeatures:", user.faceFeatures);
+    console.log(
+      "DEBUG: user.faceFeatures?.descriptors:",
+      user.faceFeatures?.descriptors
+    );
+    console.log(
+      "DEBUG: user.faceFeatures?.descriptors?.length:",
+      user.faceFeatures?.descriptors?.length
+    );
+
     return {
       name: user.full_name || "Sinh viên",
       studentId: user.school_info?.student_id || "Chưa cập nhật",
@@ -669,23 +681,12 @@ const DashboardPage = () => {
                         </Typography>
                         {classItem.main_class_id && (
                           <Typography variant="body2" color="textSecondary">
-                            <strong>Lớp:</strong>{" "}
-                            {classItem.main_class_id?.name}{" "}
-                            {classItem.main_class_id?.class_code
-                              ? `(${classItem.main_class_id.class_code})`
-                              : ""}
+                            <strong>Tiến độ:</strong>{" "}
+                            {classItem.attendanceStats.completed_sessions} /{" "}
+                            {classItem.attendanceStats.total_planned_sessions}{" "}
+                            buổi đã hoàn thành
                           </Typography>
                         )}
-                        <Typography
-                          variant="body2"
-                          color="textSecondary"
-                          sx={{ mt: 1 }}
-                        >
-                          <strong>Tiến độ:</strong>{" "}
-                          {classItem.attendanceStats.completed_sessions} /{" "}
-                          {classItem.attendanceStats.total_planned_sessions}{" "}
-                          buổi đã hoàn thành
-                        </Typography>
                         <Box mt={1} display="flex" alignItems="center" gap={1}>
                           <Tooltip
                             title={
