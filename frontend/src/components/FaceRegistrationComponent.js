@@ -15,11 +15,8 @@ import {
 import {
   CameraAlt,
   CheckCircleOutline,
-  ErrorOutline,
   Person,
   Replay,
-  Visibility,
-  VisibilityOff,
 } from "@mui/icons-material";
 import { loadModels, detectFace } from "../utils/faceUtils";
 import * as faceapi from "face-api.js";
