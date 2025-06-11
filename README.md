@@ -262,7 +262,7 @@
 
 ## Kiến trúc hệ thống
 
-![Kiến trúc hệ thống](https://via.placeholder.com/800x400?text=FaceReg+System+Architecture)
+![Kiến trúc hệ thống]
 
 - **Frontend**: Single Page Application (SPA) với React
 - **Backend**: RESTful API với Node.js/Express
@@ -270,7 +270,6 @@
 - **Authentication**: JWT + OAuth2
 - **Face Recognition**: TensorFlow.js + face-api.js
 - **Storage**: Lưu trữ ảnh với MongoDB GridFS hoặc cloud storage
-- **Notification**: WebSocket + Email
 
 ## Công nghệ sử dụng
 
@@ -455,7 +454,6 @@ cd FaceReg
 ```bash
 cd backend
 npm install
-cp .env.example .env
 # Chỉnh sửa file .env với thông tin cấu hình phù hợp
 ```
 
@@ -464,13 +462,13 @@ cp .env.example .env
 ```bash
 cd ../frontend
 npm install
-cp .env.example .env
 # Chỉnh sửa file .env với thông tin cấu hình phù hợp
 ```
 
 4. **Tải mô hình face-api.js**
 
 ```bash
+trong frontend
 mkdir -p public/models
 cd public/models
 
@@ -490,7 +488,7 @@ curl -O https://github.com/justadudewhohacks/face-api.js/raw/master/weights/face
 
 ```bash
 cd backend
-npm run dev
+npm run dev hoặc npm run start
 # Server sẽ chạy tại http://localhost:5000
 ```
 
@@ -515,51 +513,56 @@ docker-compose up
 
 ```
 # Server
+# Cấu hình máy chủ
 PORT=5000
 NODE_ENV=development
 
-# MongoDB
-MONGO_URI=mongodb://localhost:27017/facereg
+# Cấu hình database
+MONGODB_URI=mongodb://localhost:27017/faceregattendance
 
 # JWT
-JWT_SECRET=your_jwt_secret_key
-JWT_EXPIRE=30d
-JWT_COOKIE_EXPIRE=30
-
-# Google OAuth
-GOOGLE_CLIENT_ID=your_google_client_id
-GOOGLE_CLIENT_SECRET=your_google_client_secret
-GOOGLE_CALLBACK_URL=http://localhost:5000/api/auth/google/callback
-
-# Email
-SMTP_HOST=smtp.example.com
-SMTP_PORT=587
-SMTP_USER=your_email@example.com
-SMTP_PASSWORD=your_email_password
-FROM_EMAIL=noreply@facereg.com
-FROM_NAME=FaceReg
+JWT_SECRET= mã secret jwt
+JWT_EXPIRES_IN= thời hạn jwt hết hạn (7d)
 
 # Frontend URL
 FRONTEND_URL=http://localhost:3000
 
-# Upload limits
-MAX_FILE_SIZE=5000000
-```
+# Google OAuth
+GOOGLE_CLIENT_ID= #id google oauth trong console của google
+GOOGLE_CLIENT_SECRET= #lấy trên google console
+GOOGLE_CALLBACK_URL=http://localhost:5000/api/auth/google/callback
+
+
+#Cloudinary
+CLOUDINARY_CLOUD_NAME =
+CLOUDINARY_API_KEY =
+CLOUDINARY_API_SECRET =
+
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
+EMAIL_USERNAME= #ứng dụng gmail
+EMAIL_PASSWORD= #pass của gmail app
 
 ### Frontend (.env)
 
 ```
+
 # API URL
+
 REACT_APP_API_URL=http://localhost:5000/api
 
-# Face API
-REACT_APP_FACE_API_MODELS_URL=/models
-REACT_APP_FACE_DETECTION_MIN_CONFIDENCE=0.5
+# Authentication
 
-# Features flags
-REACT_APP_ENABLE_GEOLOCATION=false
-REACT_APP_ENABLE_NOTIFICATIONS=true
+REACT_APP_GOOGLE_CLIENT_ID= react_app_google clinet
+REACT_APP_AUTH_REDIRECT_URL=http://localhost:3000/auth/callback
 
-# Google OAuth
-REACT_APP_GOOGLE_CLIENT_ID=your_google_client_id
-```
+# Performance optimizations
+
+GENERATE_SOURCEMAP=false
+INLINE_RUNTIME_CHUNK=false
+REACT_APP_DISABLE_ESLINT_PLUGIN=true
+REACT_APP_BUNDLE_ANALYZER=false
+
+# Build optimizations
+
+BUILD_PATH=./build

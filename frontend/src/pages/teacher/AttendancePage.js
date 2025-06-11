@@ -1,3 +1,15 @@
+/**
+ * ATTENDANCE PAGE - TRANG ĐIỂM DANH BẰNG NHẬN DIỆN KHUÔN MẶT
+ *
+ * File này chứa toàn bộ logic điểm danh tự động bằng AI nhận diện khuôn mặt
+ * Các tính năng chính:
+ * 1. Nhận diện khuôn mặt real-time bằng face-api.js
+ * 2. Điểm danh tự động và thủ công
+ * 3. Quản lý đơn xin nghỉ phép
+ * 4. Hiển thị camera với overlay landmarks
+ * 5. Thống kê điểm danh theo thời gian thực
+ */
+
 import React, {
   useState,
   useEffect,
@@ -10,7 +22,9 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
 import { useSnackbar } from "notistack";
 import axios from "axios";
-import * as faceapi from "face-api.js";
+import * as faceapi from "face-api.js"; // Thư viện AI nhận diện khuôn mặt
+
+// Material UI Components
 import {
   Box,
   Typography,
@@ -41,6 +55,8 @@ import {
   AlertTitle,
   Tooltip,
 } from "@mui/material";
+
+// Material UI Icons
 import {
   CameraAlt,
   Check,
@@ -59,83 +75,112 @@ import {
   PersonAdd,
   Clear as ClearIcon,
 } from "@mui/icons-material";
+
+// Redux Actions - Quản lý state nhận diện khuôn mặt
 import {
-  setModelLoaded as setFaceRecModelLoaded, // Rename to avoid conflict
-  setCameraReady as setFaceRecCameraReady, // Rename to avoid conflict
+  setModelLoaded as setFaceRecModelLoaded,
+  setCameraReady as setFaceRecCameraReady,
   setDetectedFaces,
   setRecognizedStudents,
   clearRecognitionState,
-  getClassFaceFeatures, // Correct thunk action name
+  getClassFaceFeatures,
   verifyAttendance,
   manualAttendance,
-} from "../../redux/slices/faceRecognitionSlice"; // Fixed relative import path
+} from "../../redux/slices/faceRecognitionSlice";
+
+// Utils - Các hàm tiện ích xử lý khuôn mặt
 import { loadModels, detectFace, getFaceDistance } from "../../utils/faceUtils";
+
+// Redux Actions - Quản lý đơn xin nghỉ phép
 import {
   fetchAllAbsenceRequestsForReview,
   reviewerUpdateRequestStatus,
-} from "../../redux/slices/absenceRequestSlice"; // Thêm import
+} from "../../redux/slices/absenceRequestSlice";
 
-// Lazy load Webcam
+// Lazy load Webcam component để tối ưu performance
 const Webcam = lazy(() => import("react-webcam"));
 
 const API_URL = process.env.REACT_APP_API_URL;
 
-// Configuration Constants
-const RECOGNITION_THRESHOLD = 0.55; // Giảm từ 0.6 xuống 0.55 để nhận diện dễ hơn
-const DETECTION_THRESHOLD = 0.6;
-const CONFIDENCE_THRESHOLD = 0.75; // Giảm từ 0.8 xuống 0.75 để chấp nhận confidence thấp hơn
-const AUTO_DETECT_INTERVAL = 1500;
+// ========== CẤU HÌNH THÔNG SỐ NHẬN DIỆN KHUÔN MẶT ==========
+/**
+ * Các thông số này quyết định độ chính xác của hệ thống nhận diện:
+ * - RECOGNITION_THRESHOLD: Ngưỡng để xác định 2 khuôn mặt giống nhau (thấp hơn = dễ nhận diện hơn)
+ * - DETECTION_THRESHOLD: Ngưỡng phát hiện khuôn mặt trong ảnh
+ * - CONFIDENCE_THRESHOLD: Mức độ tin cậy tối thiểu để chấp nhận kết quả nhận diện
+ * - AUTO_DETECT_INTERVAL: Khoảng thời gian giữa các lần kiểm tra tự động (ms)
+ */
+const RECOGNITION_THRESHOLD = 0.55; // Ngưỡng nhận diện (0.55 = dễ hơn, 0.6 = khó hơn)
+const DETECTION_THRESHOLD = 0.6; // Ngưỡng phát hiện khuôn mặt
+const CONFIDENCE_THRESHOLD = 0.75; // Độ tin cậy tối thiểu (75%)
+const AUTO_DETECT_INTERVAL = 1500; // Kiểm tra mỗi 1.5 giây
 const FACE_DETECTION_OPTIONS = new faceapi.TinyFaceDetectorOptions({
   scoreThreshold: DETECTION_THRESHOLD,
-  inputSize: 320,
+  inputSize: 320, // Kích thước input cho AI (320x320 pixels)
 });
-const MODEL_URL = "/models"; // Ensure models are in the public folder
+const MODEL_URL = "/models"; // Đường dẫn chứa file models AI
 
-// --- Helper Functions ---
+// ========== CÁC HÀM TIỆN ÍCH (HELPER FUNCTIONS) ==========
 
-// Function to load face recognition models
+/**
+ * HÀM TẢI CÁC MÔ HÌNH AI NHẬN DIỆN KHUÔN MẶT
+ * Tải 3 mô hình AI cần thiết cho việc nhận diện:
+ * 1. TinyFaceDetector: Phát hiện khuôn mặt trong ảnh
+ * 2. FaceLandmark68Net: Xác định 68 điểm đặc trưng trên khuôn mặt
+ * 3. FaceRecognitionNet: Tạo vector đặc trưng để so sánh khuôn mặt
+ */
 const loadFaceRecognitionModels = async (
   dispatch,
   enqueueSnackbar,
   closeSnackbar
 ) => {
-  let loadingSnackbarKey = null; // Để lưu key của snackbar
+  let loadingSnackbarKey = null;
+
   try {
-    // Check if models are already loaded (using face-api internal state)
+    // Kiểm tra xem các mô hình đã được tải chưa
     if (
       faceapi.nets.tinyFaceDetector.isLoaded &&
       faceapi.nets.faceLandmark68Net.isLoaded &&
       faceapi.nets.faceRecognitionNet.isLoaded
-      // Removed ssdMobilenetv1 check as TinyFaceDetector is preferred
     ) {
       dispatch(setFaceRecModelLoaded(true));
       return true;
     }
 
-    loadingSnackbarKey = enqueueSnackbar("Đang tải mô hình nhận diện...", {
+    // Hiển thị thông báo đang tải
+    loadingSnackbarKey = enqueueSnackbar("Đang tải mô hình AI nhận diện...", {
       variant: "info",
-      autoHideDuration: null, // Giữ nguyên để nó không tự ẩn ban đầu
+      autoHideDuration: null,
     });
+
+    // Tải song song cả 3 mô hình để tối ưu thời gian
     await Promise.all([
-      faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
-      faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
-      faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
+      faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL), // Mô hình phát hiện khuôn mặt
+      faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL), // Mô hình xác định đặc trưng
+      faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL), // Mô hình nhận diện
     ]);
-    if (loadingSnackbarKey) closeSnackbar(loadingSnackbarKey); // Đóng snackbar "Đang tải..."
+
+    if (loadingSnackbarKey) closeSnackbar(loadingSnackbarKey);
     dispatch(setFaceRecModelLoaded(true));
-    enqueueSnackbar("Tải mô hình nhận diện thành công", { variant: "success" });
+    enqueueSnackbar("Tải mô hình AI thành công!", { variant: "success" });
     return true;
   } catch (error) {
-    // console.error("Lỗi khi tải mô hình:", error); // Giữ lại lỗi này nếu cần thiết cho production debugging
-    if (loadingSnackbarKey) closeSnackbar(loadingSnackbarKey); // Đóng snackbar "Đang tải..." khi có lỗi
-    enqueueSnackbar("Không thể tải mô hình nhận diện", { variant: "error" });
-    dispatch(setFaceRecModelLoaded(false)); // Ensure state reflects failure
+    if (loadingSnackbarKey) closeSnackbar(loadingSnackbarKey);
+    enqueueSnackbar("Không thể tải mô hình AI. Vui lòng thử lại.", {
+      variant: "error",
+    });
+    dispatch(setFaceRecModelLoaded(false));
     return false;
   }
 };
 
-// Function to extract face descriptors from student data
+/**
+ * HÀM TRÍCH XUẤT VECTOR ĐẶC TRƯNG KHUÔN MẶT CỦA SINH VIÊN
+ * Mỗi sinh viên có thể có nhiều ảnh khuôn mặt đã được lưu trữ
+ * Hàm này sẽ lấy tất cả vector đặc trưng (128 số thực) để so sánh
+ */
 const extractStudentDescriptors = (student) => {
+  // Kiểm tra dữ liệu đầu vào
   if (
     !student ||
     (!student.faceFeatures?.descriptors && !student.faceDescriptors)
@@ -147,33 +192,48 @@ const extractStudentDescriptors = (student) => {
   const rawDescriptors =
     student.faceFeatures?.descriptors || student.faceDescriptors || [];
 
+  /**
+   * Hàm đệ quy tìm kiếm vector đặc trưng trong cấu trúc dữ liệu phức tạp
+   * Vector hợp lệ phải có đúng 128 số thực
+   */
   const findDescriptors = (data) => {
     if (!data) return;
+
     if (Array.isArray(data)) {
+      // Kiểm tra xem có phải vector đặc trưng hợp lệ (128 số)
       if (data.length === 128 && data.every((n) => typeof n === "number")) {
-        descriptors.push(new Float32Array(data)); // Convert to Float32Array
+        descriptors.push(new Float32Array(data)); // Chuyển đổi sang Float32Array cho hiệu suất tốt hơn
       } else {
-        data.forEach(findDescriptors); // Recursively search nested arrays
+        // Tìm kiếm đệ quy trong mảng lồng nhau
+        data.forEach(findDescriptors);
       }
     } else if (typeof data === "object" && data !== null) {
-      // Handle potential object structures if necessary (though less common for raw descriptors)
+      // Tìm kiếm trong object
       Object.values(data).forEach(findDescriptors);
     }
   };
 
   findDescriptors(rawDescriptors);
-  return descriptors.filter((d) => d.length === 128); // Final validation
+
+  // Lọc lại lần cuối để đảm bảo chỉ có vector hợp lệ
+  return descriptors.filter((d) => d.length === 128);
 };
 
-// Thêm hàm kiểm tra box hợp lệ
+/**
+ * HÀM KIỂM TRA TÍNH HỢP LỆ CỦA BOUNDING BOX KHUÔN MẶT
+ * Bounding box là hình chữ nhật bao quanh khuôn mặt được phát hiện
+ * Phải có tọa độ x,y và kích thước width,height hợp lệ
+ */
 const isValidBox = (box) => {
   if (!box) return false;
 
   const { x, y, width, height } = box;
 
-  // Kiểm tra từng thuộc tính
+  // Kiểm tra các thuộc tính có tồn tại
   if (x === null || y === null || width === null || height === null)
     return false;
+
+  // Kiểm tra kiểu dữ liệu phải là số
   if (
     typeof x !== "number" ||
     typeof y !== "number" ||
@@ -181,76 +241,103 @@ const isValidBox = (box) => {
     typeof height !== "number"
   )
     return false;
+
+  // Kiểm tra không phải NaN
   if (isNaN(x) || isNaN(y) || isNaN(width) || isNaN(height)) return false;
+
+  // Kiểm tra kích thước phải dương
   if (width <= 0 || height <= 0) return false;
 
   return true;
 };
 
-// Component đã được xóa vì chức năng trùng lặp
-
-// --- React Component ---
-
+// ========== COMPONENT CHÍNH - TRANG ĐIỂM DANH ==========
+/**
+ * AttendancePage: Component React chính để quản lý điểm danh
+ *
+ * LUỒNG HOẠT ĐỘNG:
+ * 1. Tải dữ liệu lớp học và phiên điểm danh
+ * 2. Khởi tạo camera và tải mô hình AI
+ * 3. Phát hiện và nhận diện khuôn mặt real-time
+ * 4. Điểm danh tự động hoặc thủ công
+ * 5. Quản lý đơn xin nghỉ phép
+ * 6. Hiển thị thống kê và kết quả
+ */
 const AttendancePage = () => {
-  const { classId, sessionId } = useParams();
-  const navigate = useNavigate();
-  const dispatch = useDispatch();
-  const { enqueueSnackbar, closeSnackbar } = useSnackbar();
+  // ========== HOOKS VÀ THAM CHIẾU ==========
+  const { classId, sessionId } = useParams(); // Lấy ID lớp học và phiên điểm danh từ URL
+  const navigate = useNavigate(); // Điều hướng trang
+  const dispatch = useDispatch(); // Gửi actions tới Redux store
+  const { enqueueSnackbar, closeSnackbar } = useSnackbar(); // Hiển thị thông báo
 
-  // Refs
-  const webcamRef = useRef(null);
-  const canvasRef = useRef(null);
-  const autoModeIntervalRef = useRef(null);
-  const landmarkIntervalRef = useRef(null);
-  const animationFrameRef = useRef(null);
+  // ========== CÁC REF ĐỂ THAM CHIẾU ĐẾN DOM VÀ TIMER ==========
+  const webcamRef = useRef(null); // Tham chiếu đến component Webcam
+  const canvasRef = useRef(null); // Tham chiếu đến canvas để vẽ landmarks
+  const autoModeIntervalRef = useRef(null); // Timer cho chế độ tự động điểm danh
+  const landmarkIntervalRef = useRef(null); // Timer cho việc vẽ landmarks
+  const animationFrameRef = useRef(null); // Frame animation cho hiệu ứng mượt
 
-  // Thêm useRef để lưu timeout ID
-  const refreshTimeoutRef = useRef(null);
-  const lastRefreshTimeRef = useRef(0);
-  const REFRESH_COOLDOWN = 3000; // 3 giây cooldown giữa các lần refresh
+  // Refs cho việc quản lý làm mới dữ liệu
+  const refreshTimeoutRef = useRef(null); // Timeout để tránh spam refresh
+  const lastRefreshTimeRef = useRef(0); // Thời gian refresh lần cuối
+  const REFRESH_COOLDOWN = 3000; // Thời gian chờ giữa các lần refresh (3 giây)
 
-  // Component State
-  const [isLoading, setIsLoading] = useState(true);
-  const [classInfo, setClassInfo] = useState(null);
-  const [sessionInfo, setSessionInfo] = useState(null);
-  const [attendanceLogs, setAttendanceLogs] = useState([]);
-  const [isAutoMode, setIsAutoMode] = useState(false);
-  const [showLandmarks, setShowLandmarks] = useState(true);
+  // ========== COMPONENT STATE - QUẢN LÝ TRẠNG THÁI UI ==========
+
+  // Trạng thái tải dữ liệu và thông tin cơ bản
+  const [isLoading, setIsLoading] = useState(true); // Đang tải dữ liệu ban đầu
+  const [classInfo, setClassInfo] = useState(null); // Thông tin lớp học
+  const [sessionInfo, setSessionInfo] = useState(null); // Thông tin phiên điểm danh
+  const [attendanceLogs, setAttendanceLogs] = useState([]); // Danh sách log điểm danh
+  const [componentError, setComponentError] = useState(null); // Lỗi của component
+  const [isProcessing, setIsProcessing] = useState(false); // Đang xử lý request
+
+  // Trạng thái chế độ điểm danh
+  const [isAutoMode, setIsAutoMode] = useState(false); // Chế độ tự động điểm danh
+  const [showLandmarks, setShowLandmarks] = useState(true); // Hiển thị landmarks trên khuôn mặt
+
+  // Trạng thái dialog điểm danh thủ công
   const [manualDialogOpen, setManualDialogOpen] = useState(false);
-  const [selectedStudent, setSelectedStudent] = useState(null);
+  const [selectedStudent, setSelectedStudent] = useState(null); // Sinh viên được chọn
   const [manualAttendanceData, setManualAttendanceData] = useState({
     status: "present",
     note: "",
   });
-  const [componentError, setComponentError] = useState(null);
-  const [isProcessing, setIsProcessing] = useState(false);
+
+  // Trạng thái quản lý đơn xin nghỉ phép
   const [localAbsenceRequests, setLocalAbsenceRequests] = useState([]);
+  const [detailDialogOpen, setDetailDialogOpen] = useState(false); // Dialog xem chi tiết đơn
+  const [selectedRequest, setSelectedRequest] = useState(null); // Đơn được chọn
 
-  // State cho dialog xem chi tiết đơn xin nghỉ
-  const [detailDialogOpen, setDetailDialogOpen] = useState(false);
-  const [selectedRequest, setSelectedRequest] = useState(null);
-
-  // State cho dialog xác nhận xóa log
+  // Trạng thái dialog xóa log điểm danh
   const [deleteLogDialogOpen, setDeleteLogDialogOpen] = useState(false);
   const [logToDelete, setLogToDelete] = useState(null);
 
-  // Redux State
-  const { token } = useSelector((state) => state.auth);
+  // ========== REDUX STATE - DỮ LIỆU TỪ STORE ==========
+  const { token } = useSelector((state) => state.auth); // Token xác thực
+
+  // State từ slice nhận diện khuôn mặt
   const {
-    isModelLoaded,
-    isCameraReady,
-    detectedFaces,
-    recognizedStudents,
-    classStudents,
-    error: faceRecError,
+    isModelLoaded, // Mô hình AI đã tải xong chưa
+    isCameraReady, // Camera đã sẵn sàng chưa
+    detectedFaces, // Danh sách khuôn mặt được phát hiện
+    recognizedStudents, // Danh sách sinh viên được nhận diện
+    classStudents, // Danh sách sinh viên trong lớp (có dữ liệu khuôn mặt)
+    error: faceRecError, // Lỗi từ hệ thống nhận diện
   } = useSelector((state) => state.faceRecognition);
+
+  // State từ slice quản lý đơn xin nghỉ phép
   const {
-    items: absenceRequests,
-    loading: absenceRequestsLoading,
-    error: absenceRequestsError,
+    items: absenceRequests, // Danh sách đơn xin nghỉ
+    loading: absenceRequestsLoading, // Đang tải đơn xin nghỉ
+    error: absenceRequestsError, // Lỗi khi tải đơn xin nghỉ
   } = useSelector((state) => state.absenceRequest.reviewRequests);
 
-  // Hàm chuyển đổi trạng thái đơn xin nghỉ phép sang tiếng Việt
+  // ========== CÁC HÀM TIỆN ÍCH CALLBACK ==========
+
+  /**
+   * Chuyển đổi trạng thái đơn xin nghỉ phép sang tiếng Việt
+   */
   const getStatusText = useCallback((status) => {
     switch (status) {
       case "pending":
@@ -674,6 +761,7 @@ const AttendancePage = () => {
   ); // Dependency on showLandmarks
 
   const detectAndRecognizeFaces = useCallback(
+    // tự động
     async (recognize = true) => {
       if (
         !isCameraReady ||
